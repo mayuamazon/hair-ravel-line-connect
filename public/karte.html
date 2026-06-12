@@ -1,0 +1,1013 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#FFFDF9">
+<link rel="icon" href="data:,">
+<title>hair ravel｜カルテ</title>
+<style>
+  :root{
+    --bg:#FFFDF9;
+    --ink:#3D2B1F;
+    --accent:#8C6B5A;
+    --line:#E8DDD6;
+    --sub:#B8A090;
+    --soft:#F5EEE8;
+    --card:#FFFFFF;
+    --danger:#B05A4A;
+    --serif:"Hiragino Mincho ProN","Yu Mincho","Noto Serif JP",serif;
+    --sans:-apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Hiragino Sans","Yu Gothic",sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html{font-size:15px}
+  body{
+    font-family:var(--sans);color:var(--ink);background:#F2ECE4;
+    -webkit-font-smoothing:antialiased;line-height:1.6;
+  }
+  #app{max-width:480px;margin:0 auto;min-height:100dvh;background:var(--bg);
+    box-shadow:0 0 40px rgba(61,43,31,.06);position:relative}
+
+  /* ---------- 共通パーツ ---------- */
+  .serif{font-family:var(--serif)}
+  .eyebrow{font-size:.62rem;letter-spacing:.24em;color:var(--sub);font-weight:500}
+  .pad{padding:0 22px}
+  .hide{display:none!important}
+
+  .view{display:none;min-height:100dvh}
+  .view.active{display:block;animation:vin .26s ease both}
+  @keyframes vin{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+
+  .vhead{
+    position:sticky;top:0;z-index:20;
+    display:flex;align-items:center;gap:10px;
+    padding:calc(12px + env(safe-area-inset-top)) 14px 12px;
+    background:rgba(255,253,249,.88);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+    border-bottom:1px solid rgba(232,221,214,.55);
+  }
+  .vhead-title{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.3}
+  .vhead-title strong{font-size:.95rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+  .icon-btn{
+    width:44px;height:44px;flex:none;border:none;background:none;border-radius:14px;
+    display:flex;align-items:center;justify-content:center;color:var(--ink);cursor:pointer;
+  }
+  .icon-btn:active{background:var(--soft)}
+  .icon-btn svg{width:21px;height:21px}
+
+  .btn-primary{
+    width:100%;height:56px;border:none;border-radius:18px;cursor:pointer;
+    background:var(--accent);color:#fff;font-family:var(--sans);
+    font-size:1.05rem;font-weight:600;letter-spacing:.12em;
+    box-shadow:0 8px 20px rgba(140,107,90,.28);
+    transition:transform .12s ease,opacity .12s ease;
+  }
+  .btn-primary:active{transform:scale(.985);opacity:.92}
+
+  .bottombar{
+    position:fixed;bottom:0;left:50%;transform:translateX(-50%);
+    width:100%;max-width:480px;z-index:30;
+    padding:12px 18px calc(14px + env(safe-area-inset-bottom));
+    background:linear-gradient(to top,rgba(255,253,249,.97) 65%,rgba(255,253,249,0));
+  }
+  .pb-bar{padding-bottom:140px}
+
+  .chips{display:flex;flex-wrap:wrap;gap:9px}
+  .chip{
+    min-height:44px;padding:9px 17px;border-radius:999px;cursor:pointer;
+    border:1px solid var(--line);background:var(--card);color:var(--ink);
+    font-family:var(--sans);font-size:.92rem;line-height:1.4;
+    display:inline-flex;align-items:center;gap:6px;
+    transition:all .15s ease;
+  }
+  .chip.on{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+  .chip-s{min-height:0;padding:3px 11px;font-size:.74rem;border-radius:999px;
+    background:var(--soft);color:var(--accent);border:none;display:inline-block;letter-spacing:.04em}
+
+  .sec{margin-top:30px}
+  .sec-head{display:flex;flex-direction:column;gap:1px;margin-bottom:13px}
+  .sec-head h3{font-size:.95rem;font-weight:600;letter-spacing:.06em}
+
+  .field{
+    width:100%;border:1px solid var(--line);border-radius:14px;background:var(--card);
+    font-family:var(--sans);font-size:16px;color:var(--ink);
+    padding:13px 15px;outline:none;-webkit-appearance:none;appearance:none;
+  }
+  .field:focus{border-color:var(--accent)}
+  .field::placeholder{color:#CDBBAD}
+  textarea.field{resize:none;min-height:88px;line-height:1.7}
+
+  .toast{
+    position:fixed;top:calc(14px + env(safe-area-inset-top));left:50%;
+    transform:translate(-50%,-80px);z-index:99;
+    background:var(--ink);color:#FFFDF9;font-size:.88rem;letter-spacing:.06em;
+    padding:12px 26px;border-radius:999px;box-shadow:0 10px 30px rgba(61,43,31,.3);
+    transition:transform .3s cubic-bezier(.2,.9,.3,1.2);pointer-events:none;white-space:nowrap}
+  .toast.show{transform:translate(-50%,0)}
+
+  /* ---------- ホーム ---------- */
+  .home-head{padding:calc(26px + env(safe-area-inset-top)) 22px 0}
+  .brand{display:flex;align-items:baseline;justify-content:space-between}
+  .brand h1{font-family:var(--serif);font-size:1.5rem;font-weight:500;letter-spacing:.14em}
+  .brand h1 small{font-size:.6rem;letter-spacing:.3em;color:var(--sub);font-family:var(--sans);
+    display:block;margin-top:-2px}
+  .brand time{font-size:.78rem;color:var(--sub);letter-spacing:.08em}
+  .greet{margin-top:18px;font-size:.85rem;color:var(--sub)}
+
+  .searchwrap{position:sticky;top:0;z-index:20;
+    padding:14px 22px 12px;margin-top:6px;
+    background:rgba(255,253,249,.92);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+  .searchbox{position:relative}
+  .searchbox svg{position:absolute;left:17px;top:50%;transform:translateY(-50%);
+    width:17px;height:17px;color:var(--sub);pointer-events:none}
+  .searchbox input{
+    width:100%;height:54px;border-radius:18px;border:1px solid var(--line);
+    background:var(--card);padding:0 44px 0 44px;font-size:16px;color:var(--ink);
+    outline:none;font-family:var(--sans);box-shadow:0 2px 10px rgba(61,43,31,.04);
+    -webkit-appearance:none;appearance:none}
+  .searchbox input:focus{border-color:var(--accent)}
+  .searchbox input::-webkit-search-cancel-button,
+  .searchbox input::-webkit-search-decoration{-webkit-appearance:none;appearance:none}
+  .searchbox input::placeholder{color:#CDBBAD;letter-spacing:.02em}
+  .search-clear{position:absolute;right:6px;top:50%;transform:translateY(-50%);
+    width:42px;height:42px;border:none;background:none;color:var(--sub);font-size:1rem;cursor:pointer}
+
+  .list-head{display:flex;align-items:flex-end;justify-content:space-between;margin:26px 0 12px}
+  .list-head .sec-head{margin:0}
+  .text-btn{border:none;background:none;color:var(--accent);font-size:.85rem;font-weight:600;
+    letter-spacing:.04em;cursor:pointer;padding:10px 2px 10px 10px;font-family:var(--sans);
+    display:inline-flex;align-items:center;gap:4px}
+
+  .today-card,.cust-card{
+    width:100%;text-align:left;cursor:pointer;font-family:var(--sans);color:var(--ink);
+    display:flex;align-items:center;gap:14px;
+    background:var(--card);border:1px solid var(--line);border-radius:20px;
+    padding:15px 16px;margin-bottom:10px;
+    transition:transform .12s ease;
+  }
+  .today-card:active,.cust-card:active{transform:scale(.985)}
+  .time-pill{flex:none;background:var(--soft);color:var(--accent);font-weight:700;
+    font-size:.92rem;letter-spacing:.04em;border-radius:13px;padding:9px 12px;font-family:var(--serif)}
+  .avatar{
+    flex:none;width:46px;height:46px;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;
+    font-family:var(--serif);font-size:1.05rem;color:var(--accent);font-weight:600;
+  }
+  .cust-info{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+  .cust-name{font-size:.98rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .cust-name small{font-weight:400;font-size:.7rem;color:var(--sub);margin-left:7px;letter-spacing:.08em}
+  .cust-sub{font-size:.78rem;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .chev{flex:none;width:16px;height:16px;color:#D8C9BD}
+
+  .empty{
+    text-align:center;padding:46px 20px 10px;color:var(--sub);font-size:.88rem}
+  .empty .btn-primary{margin-top:20px;height:50px;font-size:.95rem}
+
+  .foot{padding:34px 22px calc(40px + env(safe-area-inset-bottom));text-align:center}
+  .foot p{font-size:.68rem;color:#D2C3B6;letter-spacing:.14em}
+  .foot button{border:none;background:none;color:#C9B7A8;font-size:.7rem;margin-top:6px;
+    text-decoration:underline;cursor:pointer;font-family:var(--sans);padding:8px}
+
+  /* ---------- 顧客詳細 ---------- */
+  .guest-hero{padding:26px 22px 4px}
+  .guest-hero h2{font-family:var(--serif);font-size:1.7rem;font-weight:500;letter-spacing:.08em;margin-top:5px}
+  .guest-kana{font-size:.76rem;color:var(--sub);letter-spacing:.18em;margin-top:2px}
+  .guest-meta{display:flex;flex-wrap:wrap;gap:7px 18px;margin-top:14px;font-size:.8rem;color:var(--sub)}
+  .guest-meta a{color:var(--accent);text-decoration:none;font-weight:600;display:inline-flex;align-items:center;gap:5px}
+  .guest-meta svg{width:13px;height:13px}
+  .line-badge{display:inline-flex;align-items:center;gap:6px;background:#E9F4E4;color:#4C7A42;
+    border-radius:999px;padding:4px 12px;font-size:.72rem;font-weight:700}
+  .line-badge small{font-weight:400;color:#7FA476;font-size:.64rem;letter-spacing:.02em}
+  #syncBadge{font-size:.66rem;color:var(--sub);letter-spacing:.04em}
+  #syncBadge.on{color:#5F7C5A;font-weight:700}
+  .bk-pending{font-size:.6rem;font-weight:800;background:#F7ECE8;color:#B05A4A;border-radius:999px;padding:2px 8px;flex:none}
+  .unlock-row{display:flex;gap:8px;margin-top:10px}
+  .unlock-row .field{flex:1;min-width:0}
+  .unlock-row button{flex:none;border:none;border-radius:12px;background:var(--accent);color:#fff;
+    font-weight:700;font-size:.84rem;padding:0 16px;min-height:46px;cursor:pointer;font-family:var(--sans)}
+  .stat-row{
+    display:flex;margin-top:18px;border:1px solid var(--line);border-radius:18px;background:var(--card);overflow:hidden}
+  .stat{flex:1;text-align:center;padding:13px 4px}
+  .stat+.stat{border-left:1px solid var(--line)}
+  .stat b{display:block;font-family:var(--serif);font-size:1.15rem;font-weight:600;line-height:1.3}
+  .stat span{font-size:.64rem;color:var(--sub);letter-spacing:.14em}
+  .note-banner{
+    margin-top:12px;background:var(--soft);border-radius:14px;padding:11px 15px;
+    font-size:.8rem;color:var(--accent);line-height:1.6}
+  .booking-banner{
+    margin-top:12px;background:var(--ink);color:#FFFDF9;border-radius:14px;padding:11px 15px;
+    font-size:.8rem;letter-spacing:.05em;display:flex;align-items:center;gap:9px}
+  .booking-banner b{font-family:var(--serif);font-size:.95rem}
+
+  .karte-card{
+    display:flex;gap:15px;background:var(--card);border:1px solid var(--line);
+    border-radius:20px;padding:17px 16px;margin-bottom:12px;cursor:pointer}
+  .k-date{flex:none;width:54px;text-align:center}
+  .k-date .k-d{font-family:var(--serif);font-size:1.25rem;font-weight:600;display:block;line-height:1.1;letter-spacing:.02em}
+  .k-date .k-y{font-size:.6rem;color:var(--sub);letter-spacing:.12em;display:block;margin-top:3px}
+  .k-body{flex:1;min-width:0}
+  .k-services{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px}
+  .k-recipe{font-size:.83rem;margin:8px 0 2px;line-height:1.55}
+  .k-recipe .eyebrow{display:block;margin-bottom:2px}
+  .k-recipe-detail{font-size:.78rem;color:var(--sub);display:none;margin-top:3px;line-height:1.6}
+  .k-products{font-size:.74rem;color:var(--sub);margin-top:7px}
+  .k-memo{font-size:.82rem;color:var(--ink);margin-top:7px;line-height:1.65;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .karte-card.open .k-memo{-webkit-line-clamp:unset}
+  .karte-card.open .k-recipe-detail{display:block}
+  .k-photos{display:flex;gap:7px;margin-top:10px}
+  .k-photo{width:62px;height:62px;border-radius:12px;background-size:cover;background-position:center;
+    position:relative;overflow:hidden;background-color:var(--soft)}
+  .k-photo.ph-grad1{background:linear-gradient(135deg,#E9DCD1,#D8C5B6)}
+  .k-photo.ph-grad2{background:linear-gradient(135deg,#E2D2C3,#C9B2A0)}
+  .k-photo i{position:absolute;left:0;right:0;bottom:0;font-style:normal;font-size:.5rem;
+    letter-spacing:.16em;text-align:center;color:rgba(255,255,255,.95);
+    background:rgba(61,43,31,.35);padding:2px 0}
+
+  /* ---------- カルテ入力 ---------- */
+  .frow{display:flex;align-items:center;justify-content:space-between;gap:14px;
+    background:var(--card);border:1px solid var(--line);border-radius:16px;
+    padding:6px 8px 6px 16px;margin-top:22px}
+  .frow label{font-size:.9rem;font-weight:600;letter-spacing:.06em;flex:none}
+  .frow input[type=date]{
+    border:none;background:var(--soft);border-radius:11px;padding:11px 13px;
+    font-family:var(--serif);font-size:16px;color:var(--ink);outline:none;text-align:right;
+    -webkit-appearance:none;appearance:none;min-height:44px}
+
+  .copy-banner{
+    margin-top:18px;background:var(--soft);border-radius:16px;padding:13px 15px;
+    display:flex;align-items:center;gap:12px}
+  .copy-banner .cb-info{flex:1;min-width:0;font-size:.78rem;color:var(--accent);line-height:1.5}
+  .copy-banner .cb-info b{font-size:.85rem;display:block;color:var(--ink)}
+  .copy-banner button{
+    flex:none;border:1.5px solid var(--accent);background:var(--card);color:var(--accent);
+    font-weight:700;font-size:.82rem;border-radius:999px;padding:10px 16px;cursor:pointer;
+    font-family:var(--sans);letter-spacing:.04em;min-height:44px}
+
+  .recipe-grid{display:flex;flex-direction:column;gap:10px}
+  .sug-chips{display:flex;gap:7px;overflow-x:auto;padding:2px 0 4px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+  .sug-chips::-webkit-scrollbar{display:none}
+  .sug-chips .chip{min-height:38px;padding:6px 14px;font-size:.82rem;flex:none;background:var(--soft);border-color:transparent;color:var(--accent)}
+
+  .photo-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+  .pslot{
+    position:relative;aspect-ratio:1;border-radius:16px;cursor:pointer;
+    border:1.5px dashed #DCCDC0;background:var(--card);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;
+    background-size:cover;background-position:center;overflow:hidden}
+  .pslot input{display:none}
+  .pslot svg{width:22px;height:22px;color:#CBB8A8}
+  .pslot .pslot-label{font-size:.6rem;letter-spacing:.2em;color:var(--sub)}
+  .pslot.filled{border:none}
+  .pslot.filled svg,.pslot.filled .pslot-label{display:none}
+  .pslot .pdel{
+    position:absolute;top:5px;right:5px;width:26px;height:26px;border-radius:50%;
+    border:none;background:rgba(61,43,31,.6);color:#fff;font-size:.85rem;line-height:1;
+    display:none;align-items:center;justify-content:center;cursor:pointer}
+  .pslot.filled .pdel{display:flex}
+  .pslot .ptag{position:absolute;left:0;right:0;bottom:0;display:none;font-size:.55rem;
+    letter-spacing:.18em;text-align:center;color:#fff;background:rgba(61,43,31,.45);padding:3px 0}
+  .pslot.filled .ptag{display:block}
+
+  .addrow{display:flex;gap:9px;margin-top:11px}
+  .addrow .field{flex:1}
+  .addrow button{
+    flex:none;width:54px;border-radius:14px;border:1.5px solid var(--line);
+    background:var(--card);color:var(--accent);font-size:1.3rem;cursor:pointer;min-height:48px}
+
+  /* ---------- 新規顧客シート ---------- */
+  .overlay{
+    position:fixed;inset:0;z-index:50;background:rgba(61,43,31,.34);
+    opacity:0;pointer-events:none;transition:opacity .25s ease}
+  .overlay.show{opacity:1;pointer-events:auto}
+  .sheet{
+    position:fixed;left:50%;bottom:0;transform:translate(-50%,105%);
+    width:100%;max-width:480px;z-index:60;
+    background:var(--bg);border-radius:26px 26px 0 0;
+    padding:10px 24px calc(26px + env(safe-area-inset-bottom));
+    transition:transform .32s cubic-bezier(.25,.9,.3,1);
+    box-shadow:0 -16px 48px rgba(61,43,31,.18)}
+  .sheet.show{transform:translate(-50%,0)}
+  .sheet-grab{width:38px;height:4px;border-radius:99px;background:var(--line);margin:4px auto 16px}
+  .sheet h3{font-family:var(--serif);font-size:1.15rem;font-weight:600;letter-spacing:.1em;margin-bottom:4px}
+  .sheet .sub{font-size:.75rem;color:var(--sub);margin-bottom:18px}
+  .sheet .field{margin-bottom:11px}
+  .sheet .btn-primary{margin-top:8px}
+</style>
+</head>
+<body>
+<div class="toast" id="toast"></div>
+
+<main id="app">
+
+  <!-- ================= ホーム / 顧客検索 ================= -->
+  <section id="view-home" class="view">
+    <div class="home-head">
+      <div class="brand">
+        <h1>hair ravel<small>DIGITAL KARTE</small></h1>
+        <time id="todayLabel"></time>
+      </div>
+      <p class="greet">おつかれさまです、中村さん。</p>
+    </div>
+
+    <div class="searchwrap">
+      <div class="searchbox">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="searchInput" type="search" placeholder="お名前・フリガナ・電話番号" autocomplete="off" enterkeyhint="search">
+        <button class="search-clear hide" id="searchClear" aria-label="クリア">✕</button>
+      </div>
+    </div>
+
+    <div class="pad">
+      <div id="todaySec">
+        <div class="list-head">
+          <div class="sec-head"><span class="eyebrow">TODAY'S GUESTS</span><h3>本日のご予約</h3></div>
+          <span id="syncBadge"></span>
+        </div>
+        <div id="todayList"></div>
+      </div>
+
+      <div class="list-head">
+        <div class="sec-head"><span class="eyebrow">GUESTS</span><h3 id="custListTitle">お客様</h3></div>
+        <button class="text-btn" onclick="openNewCustomer()">＋ 新規登録</button>
+      </div>
+      <div id="custList"></div>
+    </div>
+
+    <div class="foot">
+      <p>HAIR RAVEL — PROTOTYPE</p>
+      <button onclick="resetData()">モックデータを初期状態に戻す</button>
+    </div>
+  </section>
+
+  <!-- ================= 顧客詳細（カルテ一覧） ================= -->
+  <section id="view-customer" class="view">
+    <header class="vhead">
+      <button class="icon-btn" onclick="history.back()" aria-label="戻る">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+      </button>
+      <div class="vhead-title"><span class="eyebrow">GUEST KARTE</span><strong id="custHeadName"></strong></div>
+      <span style="width:44px"></span>
+    </header>
+
+    <div class="guest-hero" id="guestHero"></div>
+
+    <div class="pad pb-bar">
+      <div class="list-head">
+        <div class="sec-head"><span class="eyebrow">HISTORY</span><h3>カルテ履歴</h3></div>
+      </div>
+      <div id="karteList"></div>
+    </div>
+
+    <div class="bottombar">
+      <button class="btn-primary" id="newKarteBtn">＋ カルテを書く</button>
+    </div>
+  </section>
+
+  <!-- ================= カルテ入力 ================= -->
+  <section id="view-carte" class="view">
+    <header class="vhead">
+      <button class="icon-btn" onclick="history.back()" aria-label="閉じる">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+      <div class="vhead-title"><span class="eyebrow">NEW KARTE</span><strong id="carteCustName"></strong></div>
+      <span style="width:44px"></span>
+    </header>
+
+    <div class="pad pb-bar">
+
+      <div class="frow">
+        <label for="fDate">来店日</label>
+        <input type="date" id="fDate">
+      </div>
+
+      <div class="copy-banner hide" id="copyBanner">
+        <div class="cb-info" id="copyInfo"></div>
+        <button onclick="copyLast()">前回をコピー</button>
+      </div>
+
+      <div class="sec">
+        <div class="sec-head"><span class="eyebrow">MENU</span><h3>メニュー</h3></div>
+        <div class="chips" id="menuChips"></div>
+      </div>
+
+      <div id="recipeSecs"></div>
+
+      <div class="sec">
+        <div class="sec-head"><span class="eyebrow">PHOTO</span><h3>写真</h3></div>
+        <div class="photo-grid">
+          <label class="pslot" id="slot-before">
+            <input type="file" accept="image/*" capture="environment" onchange="onPhoto(event,'before')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+            <span class="pslot-label">BEFORE</span>
+            <span class="ptag">BEFORE</span>
+            <button type="button" class="pdel" onclick="delPhoto(event,'before')">✕</button>
+          </label>
+          <label class="pslot" id="slot-after">
+            <input type="file" accept="image/*" capture="environment" onchange="onPhoto(event,'after')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+            <span class="pslot-label">AFTER</span>
+            <span class="ptag">AFTER</span>
+            <button type="button" class="pdel" onclick="delPhoto(event,'after')">✕</button>
+          </label>
+          <label class="pslot" id="slot-extra">
+            <input type="file" accept="image/*" capture="environment" onchange="onPhoto(event,'extra')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+            <span class="pslot-label">その他</span>
+            <span class="ptag">PHOTO</span>
+            <button type="button" class="pdel" onclick="delPhoto(event,'extra')">✕</button>
+          </label>
+        </div>
+      </div>
+
+      <div class="sec">
+        <div class="sec-head"><span class="eyebrow">PRODUCTS</span><h3>使用商品</h3></div>
+        <div class="chips" id="productChips"></div>
+        <div class="addrow">
+          <input class="field" id="fProduct" placeholder="商品名を追加" autocomplete="off" enterkeyhint="done">
+          <button type="button" onclick="addProduct()" aria-label="商品を追加">＋</button>
+        </div>
+      </div>
+
+      <div class="sec">
+        <div class="sec-head"><span class="eyebrow">MEMO</span><h3>メモ・次回への申し送り</h3></div>
+        <textarea class="field" id="fMemo" placeholder="例：次回は半トーン明るく。前髪は眉下キープ。"></textarea>
+      </div>
+
+    </div>
+
+    <div class="bottombar">
+      <button class="btn-primary" onclick="saveCarte()">カルテを保存する</button>
+    </div>
+  </section>
+
+</main>
+
+<!-- ================= 新規顧客シート ================= -->
+<div class="overlay" id="overlay" onclick="closeNewCustomer()"></div>
+<div class="sheet" id="newCustSheet">
+  <div class="sheet-grab"></div>
+  <h3>新規のお客様</h3>
+  <p class="sub">あとからカルテ画面で詳細を追記できます</p>
+  <input class="field" id="nName" placeholder="お名前（必須）" autocomplete="off">
+  <input class="field" id="nKana" placeholder="フリガナ" autocomplete="off">
+  <input class="field" id="nPhone" placeholder="電話番号" inputmode="tel" autocomplete="off">
+  <button class="btn-primary" onclick="submitNewCustomer()">登録してカルテへ</button>
+</div>
+
+<script>
+/* ================================================================
+   hair ravel — 顧客検索 & カルテ入力プロトタイプ
+   引き継ぎ書の3原則：①データ所有権 ②スマホファースト ③軽量テキスト
+   （このプロトタイプはモックデータ＋localStorageで完結）
+================================================================ */
+
+// ---------- マスタ ----------
+const MENUS    = ['カット','カラー','パーマ','トリートメント','縮毛矯正','ヘッドスパ','前髪カット','セット'];
+const PRODUCTS = ['オージュア クエンチ','N. ポリッシュオイル','エルジューダ MO','ケラスターゼ オイル'];
+const AVA_BG   = ['#F2E7DC','#EDE0D4','#F5EBE2','#E9DCCE'];
+
+// レシピ3種：対応するメニューを選ぶと入力欄が自動で開く
+const RECIPE_TYPES = [
+  { key:'color', menu:'カラー', en:'COLOR RECIPE', label:'カラーレシピ',
+    sug:['8Lv ベージュ','7Lv アッシュ','6Lv ブラウン','グレージュ','10Lv ハイトーン'],
+    ph:{ family:'系統（例：8Lv ベージュブラウン）',
+         detail:'配合（例：オルディーブ 8-CB 70g ＋ 8-PB 30g／OX 6%／30分）',
+         memo:'レシピメモ（例：毛先は乳化10分）' } },
+  { key:'perm', menu:'パーマ', en:'PERM RECIPE', label:'パーマレシピ',
+    sug:['デジパ 20mm','コールド 17mm','ゆるめワンカール','スパイラル'],
+    ph:{ family:'スタイル（例：デジパ 20mm ワンカール）',
+         detail:'薬剤・工程（例：コスメカール H／1剤10分 → 2剤5分×2）',
+         memo:'レシピメモ（例：中間〜毛先のみロッドイン）' } },
+  { key:'straight', menu:'縮毛矯正', en:'STRAIGHT RECIPE', label:'縮毛矯正レシピ',
+    sug:['ナチュラル','しっかりめ','前髪のみ','リタッチ'],
+    ph:{ family:'強さ（例：ナチュラルストレート）',
+         detail:'薬剤・アイロン（例：1剤アルカリ15分／180℃スルー2回／2剤7分）',
+         memo:'レシピメモ（例：もみあげは軟化早め）' } },
+];
+// 旧データ（recipe単体）も新形式（recipes）として読めるようにする
+const recipesOf = k => k.recipes || (k.recipe && (k.recipe.family || k.recipe.detail) ? { color: k.recipe } : {});
+
+// ---------- モックデータ（DBスキーマ customers / carte_entries 互換） ----------
+const seedCustomers = [
+  {id:'c1', name:'佐藤 美咲',   kana:'サトウ ミサキ',   phone:'090-1234-5678', birthday:'1992-04-15', note:'ブリーチ履歴あり。耳まわり敏感のため保護クリーム必須。'},
+  {id:'c2', name:'田中 結衣',   kana:'タナカ ユイ',     phone:'080-2345-6789', birthday:'1995-08-22', note:'',
+   line_user_id:'U4f8e2a1b9c3d7e6f', line_name:'ゆい☺︎'},
+  {id:'c3', name:'鈴木 あかね', kana:'スズキ アカネ',   phone:'090-3456-7890', birthday:'1988-12-03', note:'くせ強め。梅雨前に縮毛矯正の案内を。'},
+  {id:'c4', name:'高橋 葵',     kana:'タカハシ アオイ', phone:'070-4567-8901', birthday:'1999-02-18', note:''},
+  {id:'c5', name:'伊藤 さくら', kana:'イトウ サクラ',   phone:'090-5678-1234', birthday:'1985-06-30', note:''},
+  {id:'c6', name:'中村 健太',   kana:'ナカムラ ケンタ', phone:'080-6789-2345', birthday:'1990-11-11', note:''},
+  {id:'c7', name:'渡辺 久美子', kana:'ワタナベ クミコ', phone:'090-7890-3456', birthday:'1963-03-09', note:'月1リタッチ。明るすぎない6Lvキープ希望。',
+   line_user_id:'U7a2c9e4f1b8d3a5c', line_name:'クミコ'},
+  {id:'c8', name:'山本 莉子',   kana:'ヤマモト リコ',   phone:'070-8901-4567', birthday:'2001-09-27', note:''},
+];
+
+const seedCartes = [
+  {id:'k1', customerId:'c1', date:'2026-05-02', services:['カット','カラー'],
+   recipes:{color:{family:'8Lv ベージュブラウン', detail:'オルディーブ 8-CB 70g ＋ 8-PB 30g／OX 6% 100g／自然放置30分', memo:'毛先は乳化10分。次回は半トーン明るく相談。'}},
+   products:['オージュア クエンチ','N. ポリッシュオイル'], memo:'前髪は眉下キープ。顔まわりレイヤー気に入っていただけた。', photos:{}, demoPhotos:true},
+  {id:'k2', customerId:'c1', date:'2026-03-21', services:['カット','トリートメント'],
+   products:['オージュア クエンチ'], memo:'乾燥強め。ホームケアにオイル提案 → 購入。', photos:{}},
+  {id:'k3', customerId:'c1', date:'2026-02-07', services:['カラー'],
+   recipes:{color:{family:'7Lv ベージュ', detail:'オルディーブ 7-CB 80g ＋ 8-PB 20g／OX 6%／30分', memo:''}},
+   products:[], memo:'', photos:{}},
+  {id:'k4', customerId:'c2', date:'2026-05-28', services:['カット','トリートメント'],
+   products:['エルジューダ MO'], memo:'肩につく長さで好みのバランス。次回も同じ長さ希望。', photos:{}},
+  {id:'k5', customerId:'c2', date:'2026-04-12', services:['カット','カラー'],
+   recipes:{color:{family:'9Lv ミルクティーベージュ', detail:'イルミナ ヌード 9 60g ＋ オーシャン 10 30g／AC 6%／25分', memo:'ダメージ部は5分早くチェック'}},
+   products:['N. ポリッシュオイル'], memo:'', photos:{}, demoPhotos:true},
+  {id:'k6', customerId:'c3', date:'2026-04-26', services:['縮毛矯正','カット'],
+   recipes:{straight:{family:'しっかりめストレート', detail:'1剤アルカリ 15分／180℃ スルー2回／2剤 7分', memo:'前髪と顔まわりは軟化早め'}},
+   products:['オージュア クエンチ'],
+   memo:'仕上がり満足度高。次回は10月頃。', photos:{}},
+  {id:'k7', customerId:'c5', date:'2026-05-17', services:['カット','ヘッドスパ'],
+   products:[], memo:'頭皮の乾燥気味。スパ続けたいとのこと。', photos:{}},
+  {id:'k8', customerId:'c6', date:'2026-05-24', services:['カット'],
+   products:[], memo:'ツーブロック 6mm。月1ペース。', photos:{}},
+  {id:'k9', customerId:'c7', date:'2026-05-20', services:['カラー'],
+   recipes:{color:{family:'6Lv グレイカラー（リタッチ）', detail:'オルディーブ ボーテ 6-cLB 80g／OX 6%／25分', memo:'生え際は白髪密度高め、先行塗布。'}},
+   products:[], memo:'次回も4週間後にご予約済み。', photos:{}},
+  {id:'k10', customerId:'c7', date:'2026-04-22', services:['カット','カラー'],
+   recipes:{color:{family:'6Lv グレイカラー', detail:'オルディーブ ボーテ 6-cLB 90g／OX 6%／25分', memo:''}},
+   products:[], memo:'', photos:{}},
+  {id:'k11', customerId:'c8', date:'2026-05-09', services:['パーマ','カット'],
+   recipes:{perm:{family:'デジパ 20mm ワンカール', detail:'コスメカール H／1剤10分 → 2剤5分×2', memo:'中間〜毛先のみロッドイン'}},
+   products:['N. ポリッシュオイル'],
+   memo:'朝のスタイリング楽になったと好評。', photos:{}},
+];
+
+// スタンドアロン（file://等）で開いたときのデモ用予約
+const mockBookingsToday = [
+  {customerId:'c2', time:'10:00', menu:['カット','カラー'], menuLabel:'カット＋カラー', status:'confirmed', hearing:null},
+  {customerId:'c6', time:'14:30', menu:['カット'], menuLabel:'カット', status:'confirmed', hearing:null},
+];
+
+// ---------- サーバー予約連携（/karte として配信されているとき） ----------
+// LINE Connectサーバーの実予約を読み込み、顧客台帳に自動取り込みする。
+// standalone: サーバーなし（モック表示） / locked: 要管理トークン / connected: 連携中
+let serverState = 'standalone';
+let serverTodays = [];
+let unlockTried = false;
+
+const adminHeaders = () => {
+  const t = sessionStorage.getItem('hr-admin') || '';
+  return t ? { 'X-Admin-Token': t } : {};
+};
+
+function todaysBookings(){
+  if(serverState === 'connected') return serverTodays;
+  if(serverState === 'locked') return [];
+  return mockBookingsToday;
+}
+
+function matchCustomer(b){
+  return customers.find(c => b.line_user_id && c.line_user_id === b.line_user_id)
+      || customers.find(c => b.phone && digits(c.phone) && digits(c.phone) === digits(b.phone))
+      || customers.find(c => norm(c.name) === norm(b.name));
+}
+
+// 予約に載っているお客様を顧客台帳に自動登録／LINE情報を補完
+function reconcileCustomers(bookings){
+  let changed = false;
+  for(const b of bookings){
+    if(!b.name) continue;
+    let c = matchCustomer(b);
+    if(!c){
+      c = { id:'c'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),
+            name:b.name, kana:'', phone:b.phone||'', birthday:'', note:'',
+            ...(b.line_user_id ? { line_user_id:b.line_user_id, line_name:b.line_display_name||'' } : {}) };
+      customers.push(c); changed = true;
+    } else if(b.line_user_id && !c.line_user_id){
+      c.line_user_id = b.line_user_id;
+      c.line_name = b.line_display_name || c.line_name || '';
+      changed = true;
+    }
+  }
+  if(changed) persist();
+}
+
+async function connectServer(){
+  let res;
+  try { res = await fetch('/api/bookings', { headers: adminHeaders() }); }
+  catch(e){ serverState = 'standalone'; return; }
+  if(res.status === 401){
+    serverState = 'locked';
+    if(unlockTried) toast('連携できませんでした。トークンを確認してください');
+    renderIfHome(); return;
+  }
+  if(!res.ok){ serverState = 'standalone'; return; }
+  const bookings = (await res.json()).bookings || [];
+  reconcileCustomers(bookings);
+  const t = todayStr();
+  serverTodays = bookings
+    .filter(b => (b.confirmed_date || b.preferred_date) === t)
+    .sort((a,b) => String(a.confirmed_time||a.preferred_time).localeCompare(String(b.confirmed_time||b.preferred_time)))
+    .map(b => ({
+      customerId: matchCustomer(b)?.id,
+      time: b.confirmed_time || b.preferred_time || '--:--',
+      menu: (b.services||[]).filter(s => MENUS.includes(s)),
+      menuLabel: (b.services||[]).join('＋') || 'メニュー未指定',
+      status: b.status,
+      hearing: ((b.hearing_concerns||[]).length || b.hearing_style)
+        ? { concerns:b.hearing_concerns||[], style:b.hearing_style||'' } : null,
+    }));
+  serverState = 'connected';
+  renderIfHome();
+}
+function renderIfHome(){
+  const v = document.querySelector('.view.active');
+  if(v && v.id === 'view-home') renderHome();
+}
+function unlockServer(){
+  const v = $('#lockTok').value.trim();
+  if(!v){ toast('トークンを入力してください'); return; }
+  sessionStorage.setItem('hr-admin', v);
+  unlockTried = true;
+  connectServer();
+}
+
+// ---------- 状態（localStorage永続化） ----------
+const LS_KEY = 'hair-ravel-proto-v2';
+let customers, cartes;
+function loadData(){
+  try{
+    const s = JSON.parse(localStorage.getItem(LS_KEY));
+    if(s && Array.isArray(s.customers) && Array.isArray(s.cartes)){ customers=s.customers; cartes=s.cartes; return; }
+  }catch(e){}
+  customers = structuredClone(seedCustomers);
+  cartes    = structuredClone(seedCartes);
+}
+function persist(){
+  try{ localStorage.setItem(LS_KEY, JSON.stringify({customers, cartes})); }
+  catch(e){ // 写真で容量超過した場合は写真を除いて保存
+    try{
+      const slim = cartes.map(k=>({...k, photos:{}}));
+      localStorage.setItem(LS_KEY, JSON.stringify({customers, cartes:slim}));
+    }catch(e2){}
+  }
+}
+function resetData(){
+  if(!confirm('モックデータを初期状態に戻しますか？')) return;
+  localStorage.removeItem(LS_KEY); location.reload();
+}
+
+// ---------- ユーティリティ ----------
+const $  = s=>document.querySelector(s);
+const esc = s=>String(s??'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const WD = ['日','月','火','水','木','金','土'];
+const WDE = ['SUN','MON','TUE','WED','THU','FRI','SAT'];
+const pdate = s=>{ const [y,m,d]=s.split('-').map(Number); return new Date(y,m-1,d); };
+const fmtShort = s=>{ const d=pdate(s); return `${d.getMonth()+1}/${d.getDate()}`; };
+const todayStr = ()=>{ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
+const kataOf = s=>s.replace(/[ぁ-ゖ]/g, c=>String.fromCharCode(c.charCodeAt(0)+0x60));
+const norm  = s=>kataOf(String(s||'').toLowerCase()).replace(/[\s　\-‐－ー]/g,'');
+const digits= s=>String(s||'').replace(/\D/g,'');
+const ageOf = b=>{ const d=pdate(b), t=new Date(); let a=t.getFullYear()-d.getFullYear();
+  if(t.getMonth()<d.getMonth()||(t.getMonth()===d.getMonth()&&t.getDate()<d.getDate())) a--; return a; };
+
+const custCartes = cid => cartes.filter(k=>k.customerId===cid).sort((a,b)=>b.date.localeCompare(a.date));
+const lastVisit  = cid => { const l=custCartes(cid)[0]; return l? l.date : null; };
+const avatarBg   = i => AVA_BG[i % AVA_BG.length];
+const CHEV = '<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>';
+
+let tt;
+function toast(msg){
+  const t=$('#toast'); t.textContent=msg; t.classList.add('show');
+  clearTimeout(tt); tt=setTimeout(()=>t.classList.remove('show'), 2200);
+}
+
+// ---------- ルーター（履歴対応＝iPhoneのエッジスワイプで戻れる） ----------
+function render(view, params={}){
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+  if(view==='customer')   renderCustomer(params.id);
+  else if(view==='carte') renderCarteForm(params.id);
+  else { view='home'; renderHome(); }
+  $('#view-'+view).classList.add('active');
+  window.scrollTo(0,0);
+}
+function go(view, params={}){ history.pushState({view, params}, ''); render(view, params); }
+window.addEventListener('popstate', e=>{
+  const s = e.state || {view:'home', params:{}};
+  render(s.view, s.params||{});
+});
+
+// ---------- ホーム ----------
+function custCardHTML(c, i, subOverride){
+  const lv = lastVisit(c.id);
+  const lvk = lv ? custCartes(c.id)[0] : null;
+  const sub = subOverride ?? (lvk ? `前回 ${fmtShort(lvk.date)} ・ ${lvk.services.join('＋')}` : 'カルテ未登録');
+  return `<button class="cust-card" onclick="go('customer',{id:'${c.id}'})">
+    <span class="avatar" style="background:${avatarBg(i)}">${esc(c.name.charAt(0))}</span>
+    <span class="cust-info">
+      <span class="cust-name">${esc(c.name)}<small>${esc(c.kana)}</small></span>
+      <span class="cust-sub">${esc(sub)}</span>
+    </span>${CHEV}</button>`;
+}
+
+function renderHome(){
+  const d = new Date();
+  $('#todayLabel').textContent = `${d.getMonth()+1}月${d.getDate()}日（${WD[d.getDay()]}）`;
+
+  const q = $('#searchInput').value.trim();
+  $('#searchClear').classList.toggle('hide', !q);
+
+  // 本日のご予約（検索中は非表示）
+  $('#todaySec').classList.toggle('hide', !!q);
+  const sb = $('#syncBadge');
+  sb.className = serverState === 'connected' ? 'on' : '';
+  sb.textContent = serverState === 'connected' ? '● 予約サーバーと連携中'
+                 : serverState === 'locked' ? '' : 'デモデータ';
+  if(serverState === 'locked'){
+    $('#todayList').innerHTML = `<div class="note-banner">🔒 予約サーバーと連携するには管理トークン（ADMIN_TOKEN）を入力してください。
+      <div class="unlock-row"><input class="field" id="lockTok" type="password" placeholder="ADMIN_TOKEN" autocomplete="off">
+      <button onclick="unlockServer()">連携</button></div></div>`;
+  } else {
+    $('#todayList').innerHTML = todaysBookings().map(b=>{
+      const c = customers.find(x=>x.id===b.customerId); if(!c) return '';
+      return `<button class="today-card" onclick="go('customer',{id:'${c.id}'})">
+        <span class="time-pill">${b.time}</span>
+        <span class="cust-info">
+          <span class="cust-name">${esc(c.name)}</span>
+          <span class="cust-sub">${esc(b.menuLabel)}</span>
+        </span>${b.status==='pending'?'<span class="bk-pending">承認待ち</span>':''}${CHEV}</button>`;
+    }).join('') || '<p class="empty" style="padding:8px 0 4px">本日のご予約はありません</p>';
+  }
+
+  // 顧客リスト（最終来店が新しい順 → 未来店は最後）
+  const list = customers
+    .filter(c=>matches(c,q))
+    .sort((a,b)=>(lastVisit(b.id)||'0').localeCompare(lastVisit(a.id)||'0'));
+
+  $('#custListTitle').textContent = q ? `検索結果 ${list.length}件` : `お客様（${customers.length}名）`;
+  $('#custList').innerHTML = list.length
+    ? list.map((c,i)=>custCardHTML(c,i)).join('')
+    : `<div class="empty">「${esc(q)}」に一致するお客様が見つかりません
+         <button class="btn-primary" onclick="openNewCustomer()">＋ 新規のお客様として登録</button></div>`;
+}
+
+function matches(c, q){
+  const nq = norm(q); if(!nq) return true;
+  if(norm(c.name).includes(nq) || norm(c.kana).includes(nq)) return true;
+  const dq = digits(q);
+  return !!(dq && digits(c.phone).includes(dq));
+}
+$('#searchInput').addEventListener('input', renderHome);
+$('#searchClear').addEventListener('click', ()=>{ $('#searchInput').value=''; renderHome(); $('#searchInput').focus(); });
+
+// ---------- 顧客詳細 ----------
+function renderCustomer(cid){
+  const c = customers.find(x=>x.id===cid);
+  if(!c){ render('home'); return; }
+  const ks = custCartes(cid);
+
+  $('#custHeadName').textContent = c.name;
+  $('#newKarteBtn').onclick = ()=>go('carte',{id:cid});
+
+  // 平均来店周期
+  let cycle = null;
+  if(ks.length >= 2){
+    const ds = ks.map(k=>k.date).sort();
+    let sum=0; for(let i=1;i<ds.length;i++) sum += (pdate(ds[i])-pdate(ds[i-1]))/86400000;
+    cycle = Math.round(sum/(ds.length-1));
+  }
+  const bk = todaysBookings().find(b=>b.customerId===cid);
+
+  $('#guestHero').innerHTML = `
+    <span class="eyebrow">GUEST</span>
+    <h2>${esc(c.name)}</h2>
+    <div class="guest-kana">${esc(c.kana)}${c.birthday?`　${ageOf(c.birthday)}歳`:''}</div>
+    <div class="guest-meta">
+      ${c.phone?`<a href="tel:${esc(c.phone)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg>${esc(c.phone)}</a>`:''}
+      ${c.birthday?`<span>Birthday ${pdate(c.birthday).getMonth()+1}.${pdate(c.birthday).getDate()}</span>`:''}
+      ${c.line_user_id?`<span class="line-badge">LINE ${esc(c.line_name||'連携済み')}<small>${esc(c.line_user_id.slice(0,10))}…</small></span>`:''}
+    </div>
+    <div class="stat-row">
+      <div class="stat"><b>${ks.length}</b><span>来店回数</span></div>
+      <div class="stat"><b>${ks[0]?fmtShort(ks[0].date):'—'}</b><span>前回来店</span></div>
+      <div class="stat"><b>${cycle?cycle+'日':'—'}</b><span>平均周期</span></div>
+    </div>
+    ${bk?`<div class="booking-banner">本日 <b>${bk.time}</b> ご予約（${esc(bk.menuLabel)}）${bk.status==='pending'?'　※承認待ち':''}</div>`:''}
+    ${bk&&bk.hearing?`<div class="note-banner">✏️ 事前ヒアリング：${esc(bk.hearing.concerns.join('・')||'—')}${bk.hearing.style?`<br>理想のスタイル：${esc(bk.hearing.style)}`:''}</div>`:''}
+    ${c.note?`<div class="note-banner">◎ ${esc(c.note)}</div>`:''}`;
+
+  $('#karteList').innerHTML = ks.length ? ks.map(karteCardHTML).join('')
+    : `<div class="empty">まだカルテがありません。<br>下のボタンから最初のカルテを書きましょう。</div>`;
+}
+
+function karteCardHTML(k){
+  const d = pdate(k.date);
+  const mm = String(d.getMonth()+1).padStart(2,'0');
+  const dd = String(d.getDate()).padStart(2,'0');
+  let photos = '';
+  if(k.photos && (k.photos.before||k.photos.after||k.photos.extra)){
+    photos = `<div class="k-photos">
+      ${k.photos.before?`<span class="k-photo" style="background-image:url('${k.photos.before}')"><i>BEFORE</i></span>`:''}
+      ${k.photos.after ?`<span class="k-photo" style="background-image:url('${k.photos.after}')"><i>AFTER</i></span>`:''}
+      ${k.photos.extra ?`<span class="k-photo" style="background-image:url('${k.photos.extra}')"><i>PHOTO</i></span>`:''}
+    </div>`;
+  }else if(k.demoPhotos){
+    photos = `<div class="k-photos">
+      <span class="k-photo ph-grad1"><i>BEFORE</i></span>
+      <span class="k-photo ph-grad2"><i>AFTER</i></span>
+    </div>`;
+  }
+  return `<article class="karte-card" onclick="this.classList.toggle('open')">
+    <div class="k-date"><span class="k-d">${mm}.${dd}</span><span class="k-y">${d.getFullYear()} ${WDE[d.getDay()]}</span></div>
+    <div class="k-body">
+      <div class="k-services">${k.services.map(s=>`<span class="chip-s">${esc(s)}</span>`).join('')}</div>
+      ${RECIPE_TYPES.map(t=>{
+        const r = recipesOf(k)[t.key];
+        if(!r || (!r.family && !r.detail && !r.memo)) return '';
+        return `<div class="k-recipe"><span class="eyebrow">${t.en}</span>${esc(r.family||'')}
+          <div class="k-recipe-detail">${esc(r.detail||'')}${r.memo?`<br>※ ${esc(r.memo)}`:''}</div></div>`;
+      }).join('')}
+      ${photos}
+      ${k.products && k.products.length ? `<div class="k-products">使用：${k.products.map(esc).join('／')}</div>` : ''}
+      ${k.memo ? `<p class="k-memo">${esc(k.memo)}</p>` : ''}
+    </div>
+  </article>`;
+}
+
+// ---------- カルテ入力 ----------
+let draft = null;
+
+function renderCarteForm(cid){
+  const c = customers.find(x=>x.id===cid);
+  if(!c){ render('home'); return; }
+
+  draft = { customerId:cid, services:new Set(), products:new Set(), photos:{} };
+
+  $('#carteCustName').textContent = `${c.name} さま`;
+  $('#fDate').value = todayStr();
+  RECIPE_TYPES.forEach(t=>['family','detail','memo'].forEach(f=>{ $(`#rf-${t.key}-${f}`).value=''; }));
+  $('#fMemo').value=''; $('#fProduct').value='';
+  ['before','after','extra'].forEach(clearSlot);
+
+  // 本日の予約メニューをプリセット（タップ数削減）
+  const bk = todaysBookings().find(b=>b.customerId===cid);
+  if(bk) bk.menu.forEach(m=>{ if(MENUS.includes(m)) draft.services.add(m); });
+
+  // 前回コピー バナー
+  const last = custCartes(cid)[0];
+  $('#copyBanner').classList.toggle('hide', !last);
+  if(last){
+    const lastFam = RECIPE_TYPES.map(t=>recipesOf(last)[t.key]?.family).find(Boolean);
+    $('#copyInfo').innerHTML =
+      `<b>前回 ${fmtShort(last.date)}　${esc(last.services.join('＋'))}</b>` +
+      (lastFam ? esc(lastFam) : 'メニュー・レシピ・商品を引き継げます');
+  }
+
+  buildMenuChips(); buildProductChips();
+}
+
+function buildMenuChips(){
+  $('#menuChips').innerHTML = MENUS.map(m=>
+    `<button type="button" class="chip ${draft.services.has(m)?'on':''}" onclick="toggleService('${m}',this)">${m}</button>`).join('');
+  syncRecipeSec();
+}
+function toggleService(m, el){
+  draft.services.has(m) ? draft.services.delete(m) : draft.services.add(m);
+  el.classList.toggle('on');
+  syncRecipeSec();
+}
+function syncRecipeSec(){
+  RECIPE_TYPES.forEach(t=>$('#rsec-'+t.key).classList.toggle('hide', !draft.services.has(t.menu)));
+}
+// レシピ入力欄（カラー・パーマ・縮毛矯正）を生成（起動時に1回）
+function buildRecipeSections(){
+  $('#recipeSecs').innerHTML = RECIPE_TYPES.map(t=>`
+    <div class="sec hide" id="rsec-${t.key}">
+      <div class="sec-head"><span class="eyebrow">${t.en}</span><h3>${t.label}</h3></div>
+      <div class="recipe-grid">
+        <div class="sug-chips">${t.sug.map(s=>
+          `<button type="button" class="chip" onclick="$('#rf-${t.key}-family').value='${s}'">${s}</button>`).join('')}</div>
+        <input class="field" id="rf-${t.key}-family" placeholder="${t.ph.family}" autocomplete="off">
+        <textarea class="field" id="rf-${t.key}-detail" placeholder="${t.ph.detail}"></textarea>
+        <input class="field" id="rf-${t.key}-memo" placeholder="${t.ph.memo}" autocomplete="off">
+      </div>
+    </div>`).join('');
+}
+function buildProductChips(){
+  const all = [...new Set([...PRODUCTS, ...draft.products])];
+  $('#productChips').innerHTML = all.map(p=>
+    `<button type="button" class="chip ${draft.products.has(p)?'on':''}" onclick="toggleProduct(this)">${esc(p)}</button>`).join('');
+}
+function toggleProduct(el){
+  const p = el.textContent;
+  draft.products.has(p) ? draft.products.delete(p) : draft.products.add(p);
+  el.classList.toggle('on');
+}
+function addProduct(){
+  const v = $('#fProduct').value.trim();
+  if(!v) return;
+  draft.products.add(v); $('#fProduct').value='';
+  buildProductChips();
+}
+$('#fProduct').addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); addProduct(); } });
+
+// 写真
+function onPhoto(ev, slot){
+  const f = ev.target.files && ev.target.files[0];
+  if(!f) return;
+  const r = new FileReader();
+  r.onload = ()=>{
+    draft.photos[slot] = r.result;
+    const el = $('#slot-'+slot);
+    el.style.backgroundImage = `url('${r.result}')`;
+    el.classList.add('filled');
+  };
+  r.readAsDataURL(f);
+}
+function delPhoto(ev, slot){
+  ev.preventDefault(); ev.stopPropagation();
+  delete draft.photos[slot];
+  clearSlot(slot);
+}
+function clearSlot(slot){
+  const el = $('#slot-'+slot);
+  el.style.backgroundImage=''; el.classList.remove('filled');
+  el.querySelector('input').value='';
+}
+
+// 前回コピー（メニュー・全レシピ・商品を引き継ぐ）
+function copyLast(){
+  const last = custCartes(draft.customerId)[0];
+  if(!last) return;
+  draft.services = new Set(last.services);
+  draft.products = new Set(last.products||[]);
+  const recs = recipesOf(last);
+  RECIPE_TYPES.forEach(t=>{
+    const r = recs[t.key] || {};
+    $(`#rf-${t.key}-family`).value = r.family||'';
+    $(`#rf-${t.key}-detail`).value = r.detail||'';
+    $(`#rf-${t.key}-memo`).value   = r.memo||'';
+  });
+  buildMenuChips(); buildProductChips();
+  toast('前回の内容をコピーしました');
+}
+
+// 保存
+function saveCarte(){
+  if(draft.services.size === 0){ toast('メニューを選択してください'); return; }
+  const entry = {
+    id:'k'+Date.now(),
+    customerId: draft.customerId,
+    date: $('#fDate').value || todayStr(),
+    services: MENUS.filter(m=>draft.services.has(m)),
+    recipes: (() => {
+      const out = {};
+      RECIPE_TYPES.forEach(t=>{
+        if(!draft.services.has(t.menu)) return;
+        const family = $(`#rf-${t.key}-family`).value.trim();
+        const detail = $(`#rf-${t.key}-detail`).value.trim();
+        const memo   = $(`#rf-${t.key}-memo`).value.trim();
+        if(family || detail || memo) out[t.key] = { family, detail, memo };
+      });
+      return out;
+    })(),
+    products: [...draft.products],
+    memo: $('#fMemo').value.trim(),
+    photos: draft.photos,
+  };
+  cartes.unshift(entry);
+  persist();
+  toast('カルテを保存しました');
+  history.back();   // 顧客詳細へ戻る → 履歴に即反映
+}
+
+// ---------- 新規顧客 ----------
+function openNewCustomer(){
+  $('#nName').value=''; $('#nKana').value=''; $('#nPhone').value='';
+  $('#overlay').classList.add('show');
+  $('#newCustSheet').classList.add('show');
+}
+function closeNewCustomer(){
+  $('#overlay').classList.remove('show');
+  $('#newCustSheet').classList.remove('show');
+}
+function submitNewCustomer(){
+  const name = $('#nName').value.trim();
+  if(!name){ toast('お名前を入力してください'); return; }
+  const c = {
+    id:'c'+Date.now(), name,
+    kana: $('#nKana').value.trim(),
+    phone: $('#nPhone').value.trim(),
+    birthday:'', note:'',
+  };
+  customers.push(c);
+  persist();
+  closeNewCustomer();
+  toast(`${name} さまを登録しました`);
+  go('customer',{id:c.id});
+}
+
+// ---------- 起動 ----------
+if('scrollRestoration' in history) history.scrollRestoration = 'manual';
+buildRecipeSections();
+loadData();
+history.replaceState({view:'home', params:{}}, '');
+render('home');
+connectServer();   // /karte配信時はサーバー予約を読み込んで再描画（失敗時はモックのまま）
+</script>
+</body>
+</html>

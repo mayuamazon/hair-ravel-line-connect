@@ -1,0 +1,12 @@
+{
+  "name": "hair-ravel-line-connect",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "サロンオーナー所有のLINE連携サーバー（依存ゼロ・分散型）",
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node test/run-tests.mjs"
+  }
+}

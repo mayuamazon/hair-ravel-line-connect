@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#FFFDF9">
+<link rel="icon" href="data:,">
+<title>来店前ヒアリング</title>
+<style>
+  :root{
+    --bg:#FFFDF9; --ink:#3D2B1F; --accent:#8C6B5A; --line:#E8DDD6; --sub:#B8A090; --soft:#F5EEE8; --card:#FFFFFF;
+    --serif:"Hiragino Mincho ProN","Yu Mincho","Noto Serif JP",serif;
+    --sans:-apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Hiragino Sans","Yu Gothic",sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{font-family:var(--sans);color:var(--ink);background:#F2ECE4;line-height:1.65;-webkit-font-smoothing:antialiased}
+  #app{max-width:480px;margin:0 auto;min-height:100dvh;background:var(--bg);
+    box-shadow:0 0 40px rgba(61,43,31,.06);padding:calc(30px + env(safe-area-inset-top)) 22px calc(50px + env(safe-area-inset-bottom))}
+  .eyebrow{font-size:.62rem;letter-spacing:.24em;color:var(--sub);font-weight:500}
+  h1{font-family:var(--serif);font-size:1.35rem;font-weight:500;letter-spacing:.1em;margin-top:4px}
+  .booking-pill{margin-top:14px;background:var(--ink);color:#FFFDF9;border-radius:14px;padding:11px 15px;font-size:.8rem;letter-spacing:.04em}
+  .booking-pill b{font-family:var(--serif);font-size:.95rem}
+  p.lead{font-size:.82rem;color:var(--sub);margin-top:12px}
+  .sec{margin-top:26px}
+  .sec h2{font-size:.92rem;font-weight:600;letter-spacing:.05em;margin:4px 0 11px}
+  .chips{display:flex;flex-wrap:wrap;gap:9px}
+  .chip{min-height:44px;padding:9px 16px;border-radius:999px;cursor:pointer;
+    border:1px solid var(--line);background:var(--card);font-size:.9rem;
+    display:inline-flex;align-items:center;font-family:var(--sans);color:var(--ink);transition:all .15s}
+  .chip.on{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+  textarea{width:100%;border:1px solid var(--line);border-radius:14px;background:var(--card);
+    font-family:var(--sans);font-size:16px;color:var(--ink);padding:13px 15px;outline:none;min-height:96px;resize:none}
+  textarea:focus{border-color:var(--accent)}
+  textarea::placeholder{color:#CDBBAD}
+  .pslot{position:relative;width:110px;height:110px;border-radius:16px;cursor:pointer;
+    border:1.5px dashed #DCCDC0;background:var(--card);display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:6px;background-size:cover;background-position:center;overflow:hidden}
+  .pslot input{display:none}
+  .pslot span{font-size:.62rem;letter-spacing:.14em;color:var(--sub)}
+  .pslot svg{width:22px;height:22px;color:#CBB8A8}
+  .pslot.filled svg,.pslot.filled span{display:none}
+  .btn{width:100%;height:56px;border:none;border-radius:18px;cursor:pointer;margin-top:30px;
+    background:var(--accent);color:#fff;font-family:var(--sans);font-size:1.02rem;font-weight:600;letter-spacing:.12em;
+    box-shadow:0 8px 20px rgba(140,107,90,.28);transition:transform .12s,opacity .12s}
+  .btn:active{transform:scale(.985);opacity:.92}
+  .btn:disabled{opacity:.5;pointer-events:none}
+  .done{text-align:center;padding-top:90px}
+  .done .mark{font-family:var(--serif);font-size:2.2rem;color:var(--accent)}
+  .done h1{margin-top:10px}
+  .done p{font-size:.85rem;color:var(--sub);margin-top:12px}
+  .hide{display:none!important}
+  .foot{text-align:center;margin-top:46px;font-size:.66rem;color:#D2C3B6;letter-spacing:.14em}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="form">
+    <span class="eyebrow">PRE-VISIT HEARING</span>
+    <h1>来店前ヒアリング</h1>
+    <div class="booking-pill" id="bookingPill"></div>
+    <p class="lead">ご来店前に教えていただけると、当日のご提案がぐっとスムーズになります（所要1分・すべて任意）。</p>
+
+    <div class="sec">
+      <h2>気になっていること<span style="font-weight:400;color:var(--sub);font-size:.75rem">（いくつでも）</span></h2>
+      <div class="chips" id="concernChips"></div>
+    </div>
+
+    <div class="sec">
+      <h2>理想のスタイル・なりたいイメージ</h2>
+      <textarea id="fStyle" placeholder="例：ふんわりボブ。扱いやすくて朝が楽な感じにしたい"></textarea>
+    </div>
+
+    <div class="sec">
+      <h2>参考写真<span style="font-weight:400;color:var(--sub);font-size:.75rem">（任意）</span></h2>
+      <label class="pslot" id="pslot">
+        <input type="file" accept="image/*" onchange="onPhoto(event)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+        <span>タップして選択</span>
+      </label>
+    </div>
+
+    <button class="btn" id="sendBtn" onclick="send()">送信する</button>
+    <div class="foot" id="salonFoot"></div>
+  </div>
+
+  <div id="done" class="done hide">
+    <div class="mark">✳</div>
+    <h1>ありがとうございます</h1>
+    <p>担当者にしっかり共有しました。<br>当日お会いできるのを楽しみにしております。</p>
+  </div>
+
+  <div id="notfound" class="done hide">
+    <h1>ページが見つかりません</h1>
+    <p>リンクの有効期限が切れているか、<br>予約情報が見つかりませんでした。</p>
+  </div>
+</div>
+
+<script>
+const BOOKING = /*__BOOKING__*/null;
+const CONCERNS = ['くせ毛・うねり','ダメージ','カラーの色落ち','ボリューム','まとまり','白髪','その他'];
+const $ = s => document.querySelector(s);
+const picked = new Set();
+let photoDataUrl = '';
+
+if(!BOOKING){
+  $('#form').classList.add('hide');
+  $('#notfound').classList.remove('hide');
+}else{
+  $('#bookingPill').innerHTML = `<b>${esc(BOOKING.date)} ${esc(BOOKING.time)}</b>　${(BOOKING.services||[]).map(esc).join(' / ')}`;
+  $('#salonFoot').textContent = (BOOKING.salonName || '').toUpperCase();
+  $('#concernChips').innerHTML = CONCERNS.map(c =>
+    `<button type="button" class="chip" onclick="toggle(this)">${c}</button>`).join('');
+}
+function esc(s){ return String(s??'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function toggle(el){
+  const v = el.textContent;
+  picked.has(v) ? picked.delete(v) : picked.add(v);
+  el.classList.toggle('on');
+}
+function onPhoto(ev){
+  const f = ev.target.files && ev.target.files[0];
+  if(!f) return;
+  const r = new FileReader();
+  r.onload = () => {
+    photoDataUrl = r.result;
+    const el = $('#pslot');
+    el.style.backgroundImage = `url('${r.result}')`;
+    el.classList.add('filled');
+  };
+  r.readAsDataURL(f);
+}
+async function send(){
+  $('#sendBtn').disabled = true;
+  try{
+    const res = await fetch('/api/hearing', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        bookingId: BOOKING.id,
+        concerns: [...picked],
+        style: $('#fStyle').value.trim(),
+        ...(photoDataUrl ? { photoDataUrl } : {}),
+      }),
+    });
+    if(!res.ok) throw new Error();
+    $('#form').classList.add('hide');
+    $('#done').classList.remove('hide');
+    window.scrollTo(0,0);
+  }catch(e){
+    $('#sendBtn').disabled = false;
+    alert('送信できませんでした。電波の良いところでもう一度お試しください。');
+  }
+}
+</script>
+</body>
+</html>

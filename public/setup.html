@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#FFFDF9">
+<link rel="icon" href="data:,">
+<title>hair ravel｜LINE連携セットアップ</title>
+<style>
+  :root{
+    --bg:#FFFDF9; --ink:#3D2B1F; --accent:#8C6B5A; --line:#E8DDD6; --sub:#B8A090;
+    --soft:#F5EEE8; --card:#FFFFFF; --ok:#5F7C5A; --warn:#B05A4A;
+    --serif:"Hiragino Mincho ProN","Yu Mincho","Noto Serif JP",serif;
+    --sans:-apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Hiragino Sans","Yu Gothic",sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{font-family:var(--sans);color:var(--ink);background:#F2ECE4;line-height:1.65;-webkit-font-smoothing:antialiased}
+  #app{max-width:480px;margin:0 auto;min-height:100dvh;background:var(--bg);
+    box-shadow:0 0 40px rgba(61,43,31,.06);padding-bottom:calc(60px + env(safe-area-inset-bottom))}
+  .head{padding:calc(28px + env(safe-area-inset-top)) 22px 6px}
+  .head h1{font-family:var(--serif);font-size:1.4rem;font-weight:500;letter-spacing:.12em}
+  .head h1 small{display:block;font-family:var(--sans);font-size:.6rem;letter-spacing:.3em;color:var(--sub);margin-top:-1px}
+  .head p{font-size:.8rem;color:var(--sub);margin-top:12px}
+  .eyebrow{font-size:.62rem;letter-spacing:.24em;color:var(--sub);font-weight:500}
+  .sec{padding:0 22px;margin-top:30px}
+  .sec-head{margin-bottom:12px}
+  .sec-head h2{font-size:.98rem;font-weight:600;letter-spacing:.06em}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:18px 16px}
+  .card + .card{margin-top:10px}
+  label{display:block;font-size:.8rem;font-weight:600;letter-spacing:.04em;margin:14px 0 6px}
+  label:first-child{margin-top:0}
+  label small{font-weight:400;color:var(--sub);margin-left:6px;font-size:.7rem}
+  .field{width:100%;border:1px solid var(--line);border-radius:13px;background:var(--bg);
+    font-family:var(--sans);font-size:16px;color:var(--ink);padding:12px 14px;outline:none;
+    -webkit-appearance:none;appearance:none}
+  .field:focus{border-color:var(--accent)}
+  .field::placeholder{color:#CDBBAD;font-size:.85rem}
+  .pwrow{position:relative}
+  .pwrow .field{padding-right:58px}
+  .pwrow button{position:absolute;right:5px;top:50%;transform:translateY(-50%);
+    border:none;background:none;color:var(--accent);font-size:.72rem;font-weight:600;
+    padding:12px 10px;cursor:pointer;font-family:var(--sans)}
+  .genrow{display:flex;gap:8px}
+  .genrow .field{flex:1}
+  .genrow button{flex:none;border:1.5px solid var(--line);background:var(--card);color:var(--accent);
+    font-size:.78rem;font-weight:600;border-radius:13px;padding:0 14px;cursor:pointer;font-family:var(--sans);min-height:46px}
+  .btn{width:100%;height:54px;border:none;border-radius:16px;cursor:pointer;margin-top:16px;
+    background:var(--accent);color:#fff;font-family:var(--sans);font-size:1rem;font-weight:600;letter-spacing:.1em;
+    box-shadow:0 8px 20px rgba(140,107,90,.25);transition:transform .12s,opacity .12s}
+  .btn:active{transform:scale(.985);opacity:.92}
+  .btn.ghost{background:var(--card);color:var(--accent);border:1.5px solid var(--accent);box-shadow:none}
+  .btn:disabled{opacity:.45;pointer-events:none}
+  .seg{display:flex;background:var(--soft);border-radius:14px;padding:4px;margin-top:6px}
+  .seg button{flex:1;border:none;border-radius:11px;background:none;padding:11px 4px;
+    font-family:var(--sans);font-size:.82rem;font-weight:600;color:var(--sub);cursor:pointer;min-height:44px}
+  .seg button.on{background:var(--card);color:var(--ink);box-shadow:0 2px 8px rgba(61,43,31,.08)}
+  .note{background:var(--soft);border-radius:14px;padding:12px 14px;font-size:.76rem;color:var(--accent);
+    line-height:1.7;margin-top:14px}
+  .note b{display:block;margin-bottom:2px}
+  .urlbox{display:flex;align-items:center;gap:8px;background:var(--soft);border-radius:13px;padding:11px 13px;margin-top:6px}
+  .urlbox code{flex:1;font-size:.72rem;word-break:break-all;color:var(--ink);font-family:ui-monospace,Menlo,monospace}
+  .urlbox button{flex:none;border:none;background:var(--accent);color:#fff;border-radius:9px;
+    padding:9px 13px;font-size:.74rem;font-weight:600;cursor:pointer;font-family:var(--sans)}
+  .chip{display:inline-flex;align-items:center;gap:5px;background:var(--soft);color:var(--accent);
+    border-radius:999px;padding:4px 12px;font-size:.72rem;font-weight:600;margin:2px 4px 2px 0}
+  .chip.ok{background:#EDF2EA;color:var(--ok)}
+  .chip.warn{background:#F7ECE8;color:var(--warn)}
+  details{border:1px solid var(--line);border-radius:16px;background:var(--card);margin-top:10px;overflow:hidden}
+  details summary{list-style:none;cursor:pointer;padding:14px 16px;font-size:.85rem;font-weight:600;
+    display:flex;justify-content:space-between;align-items:center;min-height:48px}
+  details summary::-webkit-details-marker{display:none}
+  details summary::after{content:'＋';color:var(--sub);font-size:1rem}
+  details[open] summary::after{content:'−'}
+  details .inner{padding:0 16px 16px;font-size:.8rem;color:var(--ink)}
+  details .inner ol{padding-left:1.3em;display:flex;flex-direction:column;gap:8px}
+  details .inner a{color:var(--accent)}
+  textarea.envout{width:100%;min-height:190px;border:1px solid var(--line);border-radius:13px;
+    background:#FBF7F2;font-family:ui-monospace,Menlo,monospace;font-size:.7rem;line-height:1.8;
+    color:var(--ink);padding:12px;margin-top:10px;resize:none}
+  .result{margin-top:12px;font-size:.84rem;font-weight:600;display:none}
+  .result.ok{display:block;color:var(--ok)}
+  .result.warn{display:block;color:var(--warn)}
+  .toast{position:fixed;top:calc(14px + env(safe-area-inset-top));left:50%;transform:translate(-50%,-80px);
+    z-index:99;background:var(--ink);color:#FFFDF9;font-size:.85rem;padding:12px 24px;border-radius:999px;
+    transition:transform .3s cubic-bezier(.2,.9,.3,1.2);pointer-events:none;white-space:nowrap}
+  .toast.show{transform:translate(-50%,0)}
+  .hide{display:none!important}
+  .foot{text-align:center;padding:40px 22px 0;font-size:.66rem;color:#D2C3B6;letter-spacing:.14em}
+</style>
+</head>
+<body>
+<div class="toast" id="toast"></div>
+<div id="app">
+
+  <div class="head">
+    <h1>hair ravel<small>LINE CONNECT — SETUP</small></h1>
+    <p>あなたのLINE公式アカウントを、あなた自身の環境に直接つなぎます。<br>トークンが開発者など第三者のサーバーに送られることはありません。</p>
+  </div>
+
+  <!-- 管理トークンゲート（リモート運用時のみ表示） -->
+  <div class="sec hide" id="gateSec">
+    <div class="sec-head"><span class="eyebrow">ADMIN</span><h2>管理トークン</h2></div>
+    <div class="card">
+      <p style="font-size:.78rem;color:var(--sub)">このサーバーは ADMIN_TOKEN で保護されています。設定した値を入力してください。</p>
+      <label for="gateToken">ADMIN_TOKEN</label>
+      <input class="field" id="gateToken" type="password" autocomplete="off">
+      <button class="btn" onclick="unlock()">開く</button>
+    </div>
+  </div>
+
+  <div id="main" class="hide">
+
+    <!-- 現在の状態 -->
+    <div class="sec">
+      <div class="sec-head"><span class="eyebrow">STATUS</span><h2>接続状態</h2></div>
+      <div class="card" id="statusCard">読み込み中…</div>
+    </div>
+
+    <!-- デプロイ直後の方向け：つぎにやること -->
+    <div class="sec hide" id="nextSteps">
+      <div class="sec-head"><span class="eyebrow">NEXT</span><h2>つぎにやること（あと3つ）</h2></div>
+      <div class="card">
+        <ol style="padding-left:1.4em;font-size:.9rem;display:flex;flex-direction:column;gap:12px">
+          <li><b>接続テスト</b> — 下のSTEP 2のいちばん下にある「接続テスト」ボタンを押す。お店の名前が出たら成功です。</li>
+          <li><b>WebhookをLINEに登録</b> — 下の「WEBHOOK URL」をコピーして、LINE Developersの Messaging API設定 → Webhook URL に貼り、「検証」→「Webhookの利用」をオン。</li>
+          <li><b>カルテ画面をスマホのホームに追加</b> — <a href="/karte" style="color:var(--accent);font-weight:600">カルテ画面を開く</a> → 共有ボタン →「ホーム画面に追加」。</li>
+          <li><b>管理画面をブックマーク</b> — <a href="/admin" style="color:var(--accent);font-weight:600">管理画面を開く</a>（予約カレンダー・確定・本日一覧のLINE通知）。</li>
+        </ol>
+      </div>
+    </div>
+
+    <!-- LINE Developers ガイド -->
+    <div class="sec">
+      <div class="sec-head"><span class="eyebrow">STEP 1</span><h2>LINE公式アカウントの準備</h2></div>
+      <details>
+        <summary>チャネルの作り方（はじめての方）</summary>
+        <div class="inner">
+          <ol>
+            <li><a href="https://developers.line.biz/console/" target="_blank" rel="noopener">LINE Developersコンソール</a>にサロンのLINEアカウントでログイン</li>
+            <li>プロバイダーを作成 →「Messaging API」チャネルを作成</li>
+            <li>「Messaging API設定」タブで<b>チャネルアクセストークン（長期）</b>を発行</li>
+            <li>「チャネル基本設定」タブの<b>チャネルシークレット</b>を控える</li>
+            <li>下の<b>Webhook URL</b>をコンソールに登録し「Webhookの利用」をオン</li>
+            <li>「応答メッセージ」はオフ（あいさつメッセージは任意）</li>
+          </ol>
+        </div>
+      </details>
+      <div class="card" style="margin-top:10px">
+        <span class="eyebrow">WEBHOOK URL（あなた専用）</span>
+        <div class="urlbox"><code id="webhookUrl">—</code><button onclick="copyText('webhookUrl')">コピー</button></div>
+        <p style="font-size:.72rem;color:var(--sub);margin-top:8px">LINEからの通知は、このURL＝<b>あなたのサーバー</b>に直接届きます。</p>
+      </div>
+    </div>
+
+    <!-- 接続情報の入力 -->
+    <div class="sec">
+      <div class="sec-head"><span class="eyebrow">STEP 2</span><h2>接続情報を入力</h2></div>
+      <div class="card">
+        <label for="fSalon">サロン名</label>
+        <input class="field" id="fSalon" placeholder="Hair ravel" autocomplete="off">
+        <label for="fOwner">オーナー表示名<small>LINE文面の署名に使います</small></label>
+        <input class="field" id="fOwner" placeholder="中村" autocomplete="off">
+        <label for="fToken">チャネルアクセストークン（長期）</label>
+        <div class="pwrow"><input class="field" id="fToken" type="password" autocomplete="off"><button onclick="togglePw('fToken',this)">表示</button></div>
+        <label for="fSecret">チャネルシークレット</label>
+        <div class="pwrow"><input class="field" id="fSecret" type="password" autocomplete="off"><button onclick="togglePw('fSecret',this)">表示</button></div>
+        <label for="fOwnerId">オーナーのLINE User ID<small>予約・ヒアリング通知の宛先</small></label>
+        <input class="field" id="fOwnerId" placeholder="Uxxxxxxxx…" autocomplete="off">
+        <label for="fCron">CRON_SECRET<small>自動配信の認証キー</small></label>
+        <div class="genrow"><input class="field" id="fCron" autocomplete="off"><button onclick="gen('fCron')">自動生成</button></div>
+        <label for="fAdmin">ADMIN_TOKEN<small>この画面と管理APIの鍵</small></label>
+        <div class="genrow"><input class="field" id="fAdmin" autocomplete="off"><button onclick="gen('fAdmin')">自動生成</button></div>
+        <label for="fReview">Googleマップ口コミURL<small>任意・サンクスLINEに表示</small></label>
+        <input class="field" id="fReview" placeholder="https://g.page/r/…" autocomplete="off" inputmode="url">
+        <label for="fBookingUrl">予約ページURL<small>任意・あいさつメッセージに表示</small></label>
+        <input class="field" id="fBookingUrl" placeholder="https://…/booking" autocomplete="off" inputmode="url">
+
+        <button class="btn ghost" onclick="testConnection()">接続テスト（トークンは保存されません）</button>
+        <p class="result" id="testResult"></p>
+      </div>
+    </div>
+
+    <!-- データの保管先 -->
+    <div class="sec">
+      <div class="sec-head"><span class="eyebrow">STEP 3</span><h2>データの保管先（あなた所有）</h2></div>
+      <div class="card">
+        <div class="seg">
+          <button id="stFs" class="on" onclick="setStorage('fs')">このMacのフォルダ<br><span style="font-weight:400;font-size:.68rem">Google Drive同期がおすすめ</span></button>
+          <button id="stGh" onclick="setStorage('github')">GitHubリポジトリ<br><span style="font-weight:400;font-size:.68rem">Vercel運用はこちら</span></button>
+        </div>
+        <div id="fsFields">
+          <label for="fDataDir">データフォルダ<small>Google Driveの同期フォルダを指定すると自動バックアップに</small></label>
+          <input class="field" id="fDataDir" placeholder="/Users/you/Google Drive/hair-ravel-data" autocomplete="off">
+        </div>
+        <div id="ghFields" class="hide">
+          <label for="fGhRepo">リポジトリ<small>あなたのアカウントの非公開repo</small></label>
+          <input class="field" id="fGhRepo" placeholder="your-name/salon-data" autocomplete="off">
+          <label for="fGhToken">GitHubトークン<small>Fine-grained PAT・このrepoのContents権限のみ</small></label>
+          <div class="pwrow"><input class="field" id="fGhToken" type="password" autocomplete="off"><button onclick="togglePw('fGhToken',this)">表示</button></div>
+        </div>
+        <p style="font-size:.72rem;color:var(--sub);margin-top:10px">予約・カルテ・購読者はすべて<b>Markdown</b>で保存されます。解約しても、データはあなたの手元に残ります。</p>
+      </div>
+    </div>
+
+    <!-- 保存方法 -->
+    <div class="sec">
+      <div class="sec-head"><span class="eyebrow">STEP 4</span><h2>保存して運用開始</h2></div>
+      <div class="seg">
+        <button id="modeVercel" class="on" onclick="setMode('vercel')">Vercelで運用（推奨）</button>
+        <button id="modeLocal" onclick="setMode('local')">この端末で運用</button>
+      </div>
+
+      <div id="vercelPane" class="card" style="margin-top:10px">
+        <p style="font-size:.8rem">下のボタンで<b>環境変数セット</b>を作り、あなたのVercelプロジェクトの Settings → Environment Variables に貼り付けてください。</p>
+        <button class="btn" onclick="genEnv()">環境変数を生成（ブラウザ内だけで完結）</button>
+        <textarea class="envout hide" id="envOut" readonly></textarea>
+        <button class="btn ghost hide" id="envCopyBtn" onclick="copyText('envOut')">環境変数をコピー</button>
+        <div class="note"><b>🔒 安全性について</b>この生成はこの画面（あなたの端末）の中だけで行われ、どこにも送信されません。貼り付け先もあなた自身のVercelアカウントです。</div>
+      </div>
+
+      <div id="localPane" class="card hide" style="margin-top:10px">
+        <p style="font-size:.8rem">この端末の <code style="font-size:.72rem">~/.hair-ravel/</code> に<b>AES-256-GCMで暗号化</b>して保存します（データフォルダの外なので、DriveやGitHubには同期されません）。</p>
+        <button class="btn" id="saveLocalBtn" onclick="saveLocal()">この端末に暗号化保存</button>
+        <p class="result" id="saveResult"></p>
+        <div class="note" id="passHint"><b>合言葉について</b>サーバー起動時に <code>HR_STORE_KEY=あなたの合言葉</code> を設定しておくと保存できます。合言葉そのものはファイルに残りません。</div>
+      </div>
+    </div>
+
+    <!-- リッチメニュー案内 -->
+    <div class="sec">
+      <div class="sec-head"><span class="eyebrow">STEP 5</span><h2>リッチメニュー（手動設定）</h2></div>
+      <details>
+        <summary>空き枠通知ボタンの設定方法</summary>
+        <div class="inner">
+          <ol>
+            <li><a href="https://manager.line.biz/" target="_blank" rel="noopener">LINE Official Account Manager</a>でリッチメニューを作成</li>
+            <li>ボタン1：テキスト送信「<b>空き枠通知を登録する</b>」</li>
+            <li>ボタン2：テキスト送信「<b>空き枠通知を解除する</b>」</li>
+            <li>ボタン3：リンク → あなたの予約ページURL</li>
+          </ol>
+          <p style="margin-top:10px;color:var(--sub)">ボタンが押されると、このサーバーが自動で登録・解除して返信します。</p>
+        </div>
+      </details>
+    </div>
+
+    <div class="foot">HAIR RAVEL — LINE CONNECT<br>あなたのデータは、あなたのもの。</div>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+let tt;
+const toast = m => { const t=$('#toast'); t.textContent=m; t.classList.add('show'); clearTimeout(tt); tt=setTimeout(()=>t.classList.remove('show'),2200); };
+const adminHeaders = () => {
+  const t = sessionStorage.getItem('hr-admin') || '';
+  return t ? { 'X-Admin-Token': t } : {};
+};
+
+let storageKind = 'fs';
+function setStorage(k){
+  storageKind = k;
+  $('#stFs').classList.toggle('on', k==='fs');
+  $('#stGh').classList.toggle('on', k==='github');
+  $('#fsFields').classList.toggle('hide', k!=='fs');
+  $('#ghFields').classList.toggle('hide', k!=='github');
+}
+function setMode(m){
+  $('#modeVercel').classList.toggle('on', m==='vercel');
+  $('#modeLocal').classList.toggle('on', m==='local');
+  $('#vercelPane').classList.toggle('hide', m!=='vercel');
+  $('#localPane').classList.toggle('hide', m!=='local');
+}
+function togglePw(id, btn){
+  const f = $('#'+id);
+  f.type = f.type === 'password' ? 'text' : 'password';
+  btn.textContent = f.type === 'password' ? '表示' : '隠す';
+}
+function gen(id){
+  const a = new Uint8Array(18); crypto.getRandomValues(a);
+  $('#'+id).value = 'hr_' + btoa(String.fromCharCode(...a)).replace(/[+/=]/g,'').slice(0,24);
+}
+function copyText(id){
+  const el = $('#'+id);
+  const v = el.value !== undefined && el.value !== '' ? el.value : el.textContent;
+  navigator.clipboard.writeText(v).then(()=>toast('コピーしました'));
+}
+
+function collect(){
+  return {
+    salonName: $('#fSalon').value.trim(),
+    ownerName: $('#fOwner').value.trim(),
+    accessToken: $('#fToken').value.trim(),
+    channelSecret: $('#fSecret').value.trim(),
+    ownerUserId: $('#fOwnerId').value.trim(),
+    cronSecret: $('#fCron').value.trim(),
+    adminToken: $('#fAdmin').value.trim(),
+    reviewUrl: $('#fReview').value.trim(),
+    bookingUrl: $('#fBookingUrl').value.trim(),
+    storage: storageKind,
+    dataDir: $('#fDataDir').value.trim(),
+    githubRepo: $('#fGhRepo').value.trim(),
+    githubToken: $('#fGhToken').value.trim(),
+  };
+}
+
+// 環境変数生成 — ブラウザ内だけで完結（どこにも送信しない）
+function genEnv(){
+  const d = collect();
+  const lines = [
+    ['SALON_NAME', d.salonName], ['OWNER_NAME', d.ownerName],
+    ['LINE_CHANNEL_ACCESS_TOKEN', d.accessToken], ['LINE_CHANNEL_SECRET', d.channelSecret],
+    ['LINE_OWNER_USER_ID', d.ownerUserId], ['CRON_SECRET', d.cronSecret], ['ADMIN_TOKEN', d.adminToken],
+    ['GOOGLE_MAPS_REVIEW_URL', d.reviewUrl], ['BOOKING_URL', d.bookingUrl],
+    ['HR_STORAGE', d.storage],
+    ...(d.storage==='github' ? [['GITHUB_REPO', d.githubRepo], ['GITHUB_TOKEN', d.githubToken]] : [['DATA_DIR', d.dataDir]]),
+  ].filter(([,v])=>v).map(([k,v])=>`${k}=${v}`);
+  if(!lines.length){ toast('入力内容がありません'); return; }
+  $('#envOut').value = lines.join('\n');
+  $('#envOut').classList.remove('hide');
+  $('#envCopyBtn').classList.remove('hide');
+}
+
+async function saveLocal(){
+  const r = $('#saveResult'); r.className='result';
+  const d = collect();
+  const res = await fetch('/api/settings', {
+    method:'POST', headers:{'Content-Type':'application/json', ...adminHeaders()},
+    body: JSON.stringify(d),
+  });
+  const j = await res.json();
+  if(res.ok && j.ok){
+    // ADMIN_TOKENを保存した場合は、この画面が締め出されないよう自動で引き継ぐ
+    if(d.adminToken) sessionStorage.setItem('hr-admin', d.adminToken);
+    r.textContent='✓ 暗号化して保存しました'; r.classList.add('ok'); loadStatus();
+  }
+  else { r.textContent = j.error || '保存できませんでした'; r.classList.add('warn'); }
+}
+
+async function testConnection(){
+  const r = $('#testResult'); r.className='result';
+  r.textContent='接続中…'; r.classList.add('ok');
+  const body = {};
+  const t = $('#fToken').value.trim();
+  if(t) body.accessToken = t;
+  try{
+    const res = await fetch('/api/line/test', {
+      method:'POST', headers:{'Content-Type':'application/json', ...adminHeaders()},
+      body: JSON.stringify(body),
+    });
+    const j = await res.json();
+    r.className='result';
+    if(j.ok){ r.textContent=`✓ 「${j.bot.displayName}」と接続できました`; r.classList.add('ok'); }
+    else { r.textContent='✕ ' + (j.error||'接続できませんでした'); r.classList.add('warn'); }
+  }catch(e){ r.className='result warn'; r.textContent='✕ サーバーに接続できませんでした'; }
+}
+
+function chips(s){
+  const c = (label, on, maskedVal) =>
+    `<span class="chip ${on?'ok':'warn'}">${on?'✓':'—'} ${label}${on&&maskedVal?` <span style="font-weight:400">${maskedVal}</span>`:''}</span>`;
+  return [
+    c('トークン', !!s.accessToken, s.accessToken),
+    c('シークレット', !!s.channelSecret),
+    c('オーナーID', !!s.ownerUserId, s.ownerUserId),
+    c('CRON', !!s.cronSecret),
+    `<span class="chip">${s.storageKind==='github' ? 'GitHub保存' : 'フォルダ保存'}</span>`,
+  ].join('');
+}
+
+async function loadStatus(){
+  const res = await fetch('/api/settings', { headers: adminHeaders() });
+  if(res.status === 401){
+    $('#gateSec').classList.remove('hide');
+    $('#main').classList.add('hide');
+    return;
+  }
+  const s = await res.json();
+  $('#gateSec').classList.add('hide');
+  $('#main').classList.remove('hide');
+  $('#webhookUrl').textContent = s.webhookUrl;
+  $('#statusCard').innerHTML =
+    `<div style="margin-bottom:6px">${chips(s)}</div>
+     <p style="font-size:.72rem;color:var(--sub)">トークンの中身はこの画面にも表示されません（末尾4桁のみ）。</p>`;
+  if(s.salonName) $('#fSalon').value = s.salonName;
+  if(s.ownerName) $('#fOwner').value = s.ownerName;
+  if(s.reviewUrl) $('#fReview').value = s.reviewUrl;
+  if(s.bookingUrl) $('#fBookingUrl').value = s.bookingUrl;
+  if(s.dataDir) $('#fDataDir').value = s.dataDir;
+  if(s.githubRepo) $('#fGhRepo').value = s.githubRepo;
+  if(s.storage) setStorage(s.storage === 'github' ? 'github' : 'fs');
+  if(!s.canSaveFile){ $('#saveLocalBtn').disabled = true; }
+  // トークン設定済み（＝デプロイ済み）の方には「つぎにやること」を表示
+  $('#nextSteps').classList.toggle('hide', !s.accessToken);
+}
+
+function unlock(){
+  sessionStorage.setItem('hr-admin', $('#gateToken').value.trim());
+  loadStatus();
+}
+
+loadStatus();
+</script>
+</body>
+</html>
