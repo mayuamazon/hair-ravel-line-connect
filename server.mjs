@@ -13,7 +13,7 @@ import { createSecretStore } from './lib/secret-store.mjs';
 import { verifySignature, handleEvents } from './lib/webhook-handler.mjs';
 import { isSorosoroDay } from './lib/visit-timing.mjs';
 import {
-  createLineClient, buildConfirmFlex, buildReminderFlex, buildThankYouFlex,
+  createLineClient, buildConfirmFlex, buildReminderFlex, buildThankYouFlex, buildProposalFlex,
   sorosoroText, ownerBookingText, ownerHearingText, vacancyText, ownerTodayListText,
 } from './lib/line-client.mjs';
 
@@ -122,10 +122,14 @@ export async function createApp(config) {
     apiBase: config.lineApiBase,
     fetchImpl: config.fetchImpl || fetch,
   });
+  // ctx は webhook-handler 等に渡す共有コンテキスト。
+  // notifyOwner は ctx 自身を参照するため、先に器を作ってから後付けする（循環参照を避ける）。
   const ctx = { config, store, line };
+  ctx.notifyOwner = text => notifyOwner(ctx, text);
 
   const setupHtml = await fs.readFile(path.join(MODULE_DIR, 'public', 'setup.html'), 'utf8');
   const hearingHtml = await fs.readFile(path.join(MODULE_DIR, 'public', 'hearing.html'), 'utf8');
+  const bookingHtml = await fs.readFile(path.join(MODULE_DIR, 'public', 'booking.html'), 'utf8').catch(() => null);
   const karteHtml = await fs.readFile(path.join(MODULE_DIR, 'public', 'karte.html'), 'utf8').catch(() => null);
   const adminHtml = await fs.readFile(path.join(MODULE_DIR, 'public', 'admin.html'), 'utf8').catch(() => null);
 
@@ -140,6 +144,10 @@ export async function createApp(config) {
 
       // ---------- 画面 ----------
       if (method === 'GET' && (p === '/' || p === '/setup')) return html(res, 200, setupHtml);
+      if (method === 'GET' && p === '/booking' && bookingHtml) {
+        const cfg = { salonName: config.salonName, liffId: config.liffId || '' };
+        return html(res, 200, bookingHtml.replace('/*__CFG__*/null', JSON.stringify(cfg)));
+      }
       if (method === 'GET' && p === '/karte' && karteHtml) return html(res, 200, karteHtml);
       if (method === 'GET' && p === '/admin' && adminHtml) return html(res, 200, adminHtml);
 
@@ -210,6 +218,34 @@ export async function createApp(config) {
             } catch (e) { await store.appendLog(`確定通知失敗 ${b.id}: ${e.message}`); }
           }
           await store.appendLog(`予約確定 ${b.name} ${b.confirmed_date} ${b.confirmed_time}${pushed ? '（顧客へFlex送信）' : ''}`);
+          return json(res, 200, { ok: true, booking: b, pushed });
+        }
+      }
+
+      // ---------- 別日提案（管理者） → 顧客へ提案Flex（postbackで承諾/選び直し） ----------
+      {
+        const m = /^\/api\/bookings\/([^/]+)\/propose$/.exec(p);
+        if (method === 'POST' && m) {
+          if (!adminOk(req, config)) return json(res, 401, { error: 'unauthorized' });
+          const d = body() || {};
+          if (!d.date || !d.time) return json(res, 400, { error: 'date と time は必須です' });
+          const before = await store.getBooking(m[1]);
+          if (!before) return json(res, 404, { error: 'booking not found' });
+          const b = await store.updateBooking(m[1], {
+            status: 'proposed', proposed_date: d.date, proposed_time: d.time,
+          });
+          let pushed = false;
+          if (b.line_user_id) {
+            try {
+              await line.push(b.line_user_id, [buildProposalFlex({
+                salonName: config.salonName, name: b.name,
+                origDate: b.preferred_date, origTime: b.preferred_time,
+                date: b.proposed_date, time: b.proposed_time, bookingId: b.id,
+              })]);
+              pushed = true;
+            } catch (e) { await store.appendLog(`別日提案の送信失敗 ${b.id}: ${e.message}`); }
+          }
+          await store.appendLog(`別日提案 ${b.name} ${b.proposed_date} ${b.proposed_time}`);
           return json(res, 200, { ok: true, booking: b, pushed });
         }
       }

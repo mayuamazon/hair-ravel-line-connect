@@ -174,6 +174,8 @@
         <input class="field" id="fReview" placeholder="https://g.page/r/…" autocomplete="off" inputmode="url">
         <label for="fBookingUrl">予約ページURL<small>任意・あいさつメッセージに表示</small></label>
         <input class="field" id="fBookingUrl" placeholder="https://…/booking" autocomplete="off" inputmode="url">
+        <label for="fLiffId">LIFF ID<small>LINE内で予約フォームの名前入力を自動化</small></label>
+        <input class="field" id="fLiffId" placeholder="1234567890-abcdEFGH" autocomplete="off">
 
         <button class="btn ghost" onclick="testConnection()">接続テスト（トークンは保存されません）</button>
         <p class="result" id="testResult"></p>
@@ -296,6 +298,7 @@ function collect(){
     adminToken: $('#fAdmin').value.trim(),
     reviewUrl: $('#fReview').value.trim(),
     bookingUrl: $('#fBookingUrl').value.trim(),
+    liffId: $('#fLiffId').value.trim(),
     storage: storageKind,
     dataDir: $('#fDataDir').value.trim(),
     githubRepo: $('#fGhRepo').value.trim(),
@@ -311,6 +314,7 @@ function genEnv(){
     ['LINE_CHANNEL_ACCESS_TOKEN', d.accessToken], ['LINE_CHANNEL_SECRET', d.channelSecret],
     ['LINE_OWNER_USER_ID', d.ownerUserId], ['CRON_SECRET', d.cronSecret], ['ADMIN_TOKEN', d.adminToken],
     ['GOOGLE_MAPS_REVIEW_URL', d.reviewUrl], ['BOOKING_URL', d.bookingUrl],
+    ['LIFF_ID', d.liffId],
     ['HR_STORAGE', d.storage],
     ...(d.storage==='github' ? [['GITHUB_REPO', d.githubRepo], ['GITHUB_TOKEN', d.githubToken]] : [['DATA_DIR', d.dataDir]]),
   ].filter(([,v])=>v).map(([k,v])=>`${k}=${v}`);
@@ -384,6 +388,7 @@ async function loadStatus(){
   if(s.ownerName) $('#fOwner').value = s.ownerName;
   if(s.reviewUrl) $('#fReview').value = s.reviewUrl;
   if(s.bookingUrl) $('#fBookingUrl').value = s.bookingUrl;
+  if(s.liffId) $('#fLiffId').value = s.liffId;
   if(s.dataDir) $('#fDataDir').value = s.dataDir;
   if(s.githubRepo) $('#fGhRepo').value = s.githubRepo;
   if(s.storage) setStorage(s.storage === 'github' ? 'github' : 'fs');

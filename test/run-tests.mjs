@@ -11,7 +11,7 @@ import { encryptJson, decryptJson, createSecretStore } from '../lib/secret-store
 import { serializeFrontmatter, parseFrontmatter, createMarkdownStore, jstToday, daysBetween } from '../lib/markdown-store.mjs';
 import { createFsBackend, createGithubBackend } from '../lib/store-backends.mjs';
 import { getNextVisitDays, isSorosoroDay, recommendHomecare } from '../lib/visit-timing.mjs';
-import { buildConfirmFlex, buildReminderFlex, buildThankYouFlex, sorosoroText, ownerBookingText, ownerTodayListText } from '../lib/line-client.mjs';
+import { buildConfirmFlex, buildReminderFlex, buildThankYouFlex, buildProposalFlex, sorosoroText, ownerBookingText, ownerTodayListText, ownerAcceptedText, ownerRepickText } from '../lib/line-client.mjs';
 import { verifySignature } from '../lib/webhook-handler.mjs';
 import { loadConfig, createApp } from '../server.mjs';
 
@@ -210,6 +210,15 @@ section('Flexメッセージ & 文面');
 
   ok(sorosoroText({ name: '田中 花子', salonName: 'Hair ravel', ownerName: '中村', services: ['カット', 'カラー'] }).includes('田中 花子さん、こんにちは'), 'そろそろ文面');
   ok(ownerBookingText({ name: '田中', phone: '090', services: ['カット'], preferred_date: '2026-07-01', preferred_time: '14:00' }, 'http://a/admin').includes('新しい予約リクエスト'), 'オーナー通知文面');
+
+  // 別日提案Flex（アクセント色ヘッダー・postbackボタン）
+  const pf = buildProposalFlex({ salonName: 'Hair ravel', name: '田中', origDate: '2026-07-01', origTime: '14:00', date: '2026-07-03', time: '15:00', bookingId: 'bkX' });
+  const pfs = JSON.stringify(pf);
+  ok(pf.contents.header.backgroundColor === '#8C6B5A' && pfs.includes('日時のご相談'), '提案Flexはアクセント色ヘッダー');
+  ok(pfs.includes('action=booking_accept&id=bkX') && pfs.includes('action=booking_repick&id=bkX'), '提案Flexのpostback dataにbooking_accept/repick');
+  ok(pfs.includes('2026-07-03') && pfs.includes('あいにく'), '提案Flexに提案日時と本文');
+  ok(ownerAcceptedText({ name: '田中', confirmed_date: '2026-07-03', confirmed_time: '15:00', services: ['カット'] }).includes('承諾しました'), 'オーナー承諾通知文面');
+  ok(ownerRepickText({ name: '田中' }, 'http://x/booking').includes('合わない'), 'オーナー選び直し通知文面');
 }
 
 // ================================================================ 6. Webhook署名検証
@@ -402,6 +411,64 @@ section('E2E：サーバー一気通貫（モックLINE API使用・外部送信
   ok(t1.ok === true && t1.bot.displayName === 'テストサロンBot', '接続テストAPI：Bot情報取得');
   ok(lastLine().path === '/v2/bot/info' && lastLine().auth === 'Bearer probe-token', '接続テストAPI：渡したトークンを一時利用');
 
+  // ============ 予約フォーム & 別日提案フロー ============
+  // 予約フォーム配信（CFG注入・liffId未設定時は空）
+  const bkHtml = await (await fetch(base + '/booking')).text();
+  ok(bkHtml.includes('アプリエカラー') && bkHtml.includes('/api/booking'), '予約フォーム：メニューマスターとPOST先を同梱');
+  {
+    const cfgM = /const CFG = (\{[\s\S]*?\});/.exec(bkHtml);
+    const cfg = cfgM ? JSON.parse(cfgM[1]) : null;
+    ok(cfg && (cfg.liffId === '' || cfg.liffId === null), '予約フォーム：CFG注入・liffId未設定時は空');
+    ok(cfg && typeof cfg.salonName === 'string' && cfg.salonName.length > 0, '予約フォーム：CFGにsalonNameを注入');
+  }
+  ok((await (await fetch(base + '/admin')).text()).includes('新着リクエスト'), '管理画面：新着リクエストセクションを含む');
+
+  // 別日提案：認可なし（ADMIN_TOKENゲートはアプリ側）— gateAppで検証するためここではlocalhostで成功系
+  // まず提案対象の新規予約を作る（line_user_idあり）
+  const pb = await (await post('/api/booking', { name: '提案 太郎', phone: '080-0000-1111', line_user_id: 'Upropose01', services: ['カット（ナノバブル頭皮洗浄付き）'], preferred_date: jstToday(5), preferred_time: '14:00' })).json();
+  // date/time欠落で400
+  ok((await post(`/api/bookings/${pb.id}/propose`, { date: '' })).status === 400, '提案API：date/time欠落で400');
+  // 提案成功 → status=proposed・proposed_date保存・顧客へFlex push
+  const pr = await (await post(`/api/bookings/${pb.id}/propose`, { date: jstToday(6), time: '16:00' })).json();
+  ok(pr.ok === true && pr.booking.status === 'proposed' && pr.booking.proposed_date === jstToday(6) && pr.pushed === true, '提案API：proposed化＋proposed_date保存＋push');
+  ok(lastLine().body.to === 'Upropose01' && JSON.stringify(lastLine().body.messages[0]).includes('action=booking_accept&id='), '提案API：顧客へ提案Flex（postback dataにbooking_accept）');
+  // line_user_idなし予約 → pushed:false
+  const pb2 = await (await post('/api/booking', { name: '電話 のみ', phone: '080-2222-3333', services: ['カット（ナノバブル頭皮洗浄付き）'], preferred_date: jstToday(5), preferred_time: '15:00' })).json();
+  const pr2 = await (await post(`/api/bookings/${pb2.id}/propose`, { date: jstToday(6), time: '17:00' })).json();
+  ok(pr2.ok === true && pr2.pushed === false, '提案API：line_user_idなしはpushed:false（オーナーが電話連絡）');
+
+  // Webhook booking_accept（署名付きpostback）→ proposed→confirmed・確定Flex reply＋オーナーpush
+  const linesBeforeAccept = lineCalls.length;
+  const wa = await signedPost({ events: [{ type: 'postback', replyToken: 'rtA', source: { userId: 'Upropose01' }, postback: { data: `action=booking_accept&id=${pb.id}` } }] });
+  ok((await wa.json()).handled[0] === 'booking_accept', 'Webhook：booking_acceptを処理');
+  {
+    const after = lineCalls.slice(linesBeforeAccept);
+    const replyFlex = after.find(c => c.path === '/v2/bot/message/reply' && c.body.replyToken === 'rtA' && c.body.messages[0].type === 'flex');
+    const ownerPush = after.find(c => c.path === '/v2/bot/message/push' && c.body.to === 'Uowner000000' && c.body.messages[0].text.includes('承諾'));
+    ok(!!replyFlex, 'Webhook booking_accept：顧客へ確定Flexをreply');
+    ok(!!ownerPush, 'Webhook booking_accept：オーナーへ承諾通知をpush');
+    const got = (await (await fetch(base + '/api/bookings')).json()).bookings.find(b => b.id === pb.id);
+    ok(got && got.status === 'confirmed' && got.confirmed_date === jstToday(6) && got.confirmed_time === '16:00', 'Webhook booking_accept：proposed→confirmed（提案日時を確定）');
+  }
+  // 二重送信 → 2回目は「処理済み」replyで状態不変
+  const wa2 = await signedPost({ events: [{ type: 'postback', replyToken: 'rtA2', source: { userId: 'Upropose01' }, postback: { data: `action=booking_accept&id=${pb.id}` } }] });
+  ok((await wa2.json()).handled[0] === 'booking_accept', 'Webhook：二重booking_acceptもhandled');
+  ok(lastLine().path === '/v2/bot/message/reply' && lastLine().body.replyToken === 'rtA2' && lastLine().body.messages[0].text.includes('すでに処理済み'), 'Webhook booking_accept二重：処理済みreply（状態は変えない）');
+
+  // Webhook booking_repick → cancelled＋オーナーpush
+  const pb3 = await (await post('/api/booking', { name: '辞退 花子', phone: '080-4444-5555', line_user_id: 'Urepick01', services: ['カット（ナノバブル頭皮洗浄付き）'], preferred_date: jstToday(7), preferred_time: '11:00', notes: '既存メモ' })).json();
+  await post(`/api/bookings/${pb3.id}/propose`, { date: jstToday(8), time: '12:00' });
+  const linesBeforeRepick = lineCalls.length;
+  const wr = await signedPost({ events: [{ type: 'postback', replyToken: 'rtR', source: { userId: 'Urepick01' }, postback: { data: `action=booking_repick&id=${pb3.id}` } }] });
+  ok((await wr.json()).handled[0] === 'booking_repick', 'Webhook：booking_repickを処理');
+  {
+    const after = lineCalls.slice(linesBeforeRepick);
+    const ownerPush = after.find(c => c.path === '/v2/bot/message/push' && c.body.to === 'Uowner000000' && c.body.messages[0].text.includes('合わない'));
+    ok(!!ownerPush, 'Webhook booking_repick：オーナーへ選び直し通知をpush');
+    const got = (await (await fetch(base + '/api/bookings')).json()).bookings.find(b => b.id === pb3.id);
+    ok(got && got.status === 'cancelled' && got.notes.includes('別日時を希望'), 'Webhook booking_repick：cancelled＋notesに別日時希望を追記');
+  }
+
   // ADMIN_TOKEN ゲート（リモート運用想定）
   const gateCfg = await loadConfig({}, { ...config, adminToken: 'admin-tok-1', _secretStore: undefined, configDir: path.join(TMP, 'gate-cfg'), passphrase: 'x' });
   const gateApp = http.createServer(await createApp(gateCfg));
@@ -410,6 +477,7 @@ section('E2E：サーバー一気通貫（モックLINE API使用・外部送信
   ok((await fetch(`http://127.0.0.1:${gatePort}/api/settings`, { headers: { 'X-Admin-Token': 'admin-tok-1' } })).status === 200, 'ADMIN_TOKEN設定時：正しいトークンで許可');
   ok((await fetch(`http://127.0.0.1:${gatePort}/api/cron/reminder`)).status === 401, 'ADMIN_TOKEN設定時：cronも認証なしは401');
   ok((await fetch(`http://127.0.0.1:${gatePort}/api/cron/thank-you`, { headers: { Authorization: 'Bearer wrong-secret' } })).status === 401, 'ADMIN_TOKEN設定時：不正Bearerは401');
+  ok((await fetch(`http://127.0.0.1:${gatePort}/api/bookings/bkX/propose`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"date":"2026-07-03","time":"15:00"}' })).status === 401, '提案API：ADMIN_TOKEN設定時に認可なしは401');
   gateApp.close();
 
   app.close(); mockLine.close();

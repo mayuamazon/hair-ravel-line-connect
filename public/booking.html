@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#FFFDF9">
+<link rel="icon" href="data:,">
+<title>ご予約リクエスト</title>
+<style>
+  :root{
+    --bg:#FFFDF9; --ink:#3D2B1F; --accent:#8C6B5A; --line:#E8DDD6; --sub:#B8A090; --soft:#F5EEE8; --card:#FFFFFF;
+    --serif:"Hiragino Mincho ProN","Yu Mincho","Noto Serif JP",serif;
+    --sans:-apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Hiragino Sans","Yu Gothic",sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{font-family:var(--sans);color:var(--ink);background:#F2ECE4;line-height:1.65;-webkit-font-smoothing:antialiased}
+  #app{max-width:480px;margin:0 auto;min-height:100dvh;background:var(--bg);
+    box-shadow:0 0 40px rgba(61,43,31,.06);
+    padding:calc(28px + env(safe-area-inset-top)) 22px calc(150px + env(safe-area-inset-bottom))}
+  .eyebrow{font-size:.62rem;letter-spacing:.24em;color:var(--sub);font-weight:500}
+  h1{font-family:var(--serif);font-size:1.32rem;font-weight:500;letter-spacing:.1em;margin-top:4px}
+  p.lead{font-size:.82rem;color:var(--sub);margin-top:10px}
+
+  /* ステップ進捗 */
+  .steps{display:flex;align-items:center;gap:6px;margin:18px 0 6px}
+  .steps .dot{flex:1;height:4px;border-radius:999px;background:var(--line)}
+  .steps .dot.on{background:var(--accent)}
+  .step-label{font-size:.7rem;letter-spacing:.1em;color:var(--sub);font-weight:600}
+
+  .sec{margin-top:22px}
+  .sec h2{font-size:.95rem;font-weight:600;letter-spacing:.05em;margin:4px 0 4px}
+  .sec h2 small{font-weight:400;color:var(--sub);font-size:.72rem;margin-left:6px}
+
+  /* メニュー */
+  .cat{margin-top:20px}
+  .cat-head{font-family:var(--serif);font-size:.92rem;letter-spacing:.06em;color:var(--accent);
+    margin:0 0 8px;padding-bottom:4px;border-bottom:1px solid var(--line)}
+  .menu-item{display:flex;align-items:center;gap:12px;width:100%;text-align:left;cursor:pointer;
+    border:1px solid var(--line);background:var(--card);border-radius:14px;padding:13px 14px;margin-bottom:8px;
+    font-family:var(--sans);color:var(--ink);transition:all .15s;min-height:44px}
+  .menu-item.on{background:var(--soft);border-color:var(--accent)}
+  .menu-item .check{flex:none;width:22px;height:22px;border-radius:7px;border:1.5px solid var(--line);
+    display:flex;align-items:center;justify-content:center;color:#fff;font-size:.8rem;transition:all .15s}
+  .menu-item.on .check{background:var(--accent);border-color:var(--accent)}
+  .menu-item .mi-body{flex:1;min-width:0}
+  .menu-item .mi-name{font-size:.9rem;font-weight:600;line-height:1.4}
+  .menu-item .mi-meta{font-size:.74rem;color:var(--sub);margin-top:2px}
+  .menu-item .mi-price{flex:none;font-family:var(--serif);font-size:.98rem;font-weight:600;color:var(--accent)}
+
+  /* チップ（時間・確認用） */
+  .chips{display:flex;flex-wrap:wrap;gap:9px}
+  .chip{min-height:44px;padding:9px 16px;border-radius:999px;cursor:pointer;
+    border:1px solid var(--line);background:var(--card);font-size:.9rem;
+    display:inline-flex;align-items:center;font-family:var(--sans);color:var(--ink);transition:all .15s}
+  .chip.on{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+
+  /* 入力 */
+  label{display:block;font-size:.8rem;font-weight:600;letter-spacing:.04em;margin:16px 0 6px}
+  label:first-child{margin-top:0}
+  label .req{color:#B05A4A;margin-left:4px;font-size:.72rem}
+  label small{font-weight:400;color:var(--sub);margin-left:6px;font-size:.7rem}
+  .field{width:100%;border:1px solid var(--line);border-radius:13px;background:var(--card);
+    font-family:var(--sans);font-size:16px;color:var(--ink);padding:13px 15px;outline:none;-webkit-appearance:none;appearance:none}
+  .field:focus{border-color:var(--accent)}
+  .field::placeholder{color:#CDBBAD;font-size:.85rem}
+  textarea.field{min-height:90px;resize:none}
+
+  /* 確認カード */
+  .rev-card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:16px 16px;margin-top:6px}
+  .rev-row{display:flex;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);font-size:.86rem;align-items:baseline}
+  .rev-row:last-child{border-bottom:none}
+  .rev-row .k{flex:none;width:74px;color:var(--sub);font-size:.78rem}
+  .rev-row .v{flex:1;color:var(--ink)}
+  .rev-total{display:flex;justify-content:space-between;align-items:baseline;margin-top:14px;padding-top:14px;border-top:2px solid var(--soft)}
+  .rev-total .lbl{font-size:.82rem;color:var(--sub)}
+  .rev-total .amt{font-family:var(--serif);font-size:1.35rem;font-weight:600;color:var(--accent)}
+  .rev-total .amt small{font-size:.74rem;color:var(--sub);font-family:var(--sans);margin-left:6px}
+
+  /* ボタン */
+  .btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;height:56px;border:none;border-radius:18px;cursor:pointer;
+    background:var(--accent);color:#fff;font-family:var(--sans);font-size:1.02rem;font-weight:600;letter-spacing:.08em;
+    box-shadow:0 8px 20px rgba(140,107,90,.28);transition:transform .12s,opacity .12s}
+  .btn:active{transform:scale(.985);opacity:.92}
+  .btn:disabled{opacity:.4;pointer-events:none}
+  .btn.ghost{background:var(--card);color:var(--accent);border:1.5px solid var(--accent);box-shadow:none}
+
+  /* 下部固定バー（合計＋ナビ） */
+  .dock{position:fixed;left:0;right:0;bottom:0;z-index:30;
+    max-width:480px;margin:0 auto;background:rgba(255,253,249,.94);
+    backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+    border-top:1px solid var(--line);
+    padding:12px 22px calc(12px + env(safe-area-inset-bottom))}
+  .dock-sum{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px;min-height:22px}
+  .dock-sum .lbl{font-size:.74rem;color:var(--sub)}
+  .dock-sum .val{font-family:var(--serif);font-size:1.1rem;font-weight:600;color:var(--accent)}
+  .dock-sum .val small{font-size:.72rem;color:var(--sub);font-family:var(--sans);margin-left:6px;font-weight:400}
+  .dock-nav{display:flex;gap:10px}
+  .dock-nav .btn{height:52px;font-size:.96rem}
+  .dock-nav .back{flex:none;width:88px;background:var(--card);color:var(--accent);border:1.5px solid var(--line);box-shadow:none}
+
+  .done{text-align:center;padding-top:80px}
+  .done .mark{font-size:3rem}
+  .done h1{margin-top:14px}
+  .done p{font-size:.86rem;color:var(--sub);margin-top:14px;line-height:1.8}
+  .done .soft-note{display:inline-block;margin-top:18px;background:var(--soft);color:var(--accent);
+    border-radius:12px;padding:10px 16px;font-size:.78rem}
+  .hide{display:none!important}
+  .foot{text-align:center;margin-top:40px;font-size:.66rem;color:#D2C3B6;letter-spacing:.14em}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="wizard">
+    <span class="eyebrow">RESERVATION REQUEST</span>
+    <h1 id="title">ご予約リクエスト</h1>
+    <div class="steps">
+      <span class="dot on" data-d="1"></span><span class="dot" data-d="2"></span>
+      <span class="dot" data-d="3"></span><span class="dot" data-d="4"></span>
+    </div>
+    <div class="step-label" id="stepLabel">STEP 1 / 4 ・ メニュー選択</div>
+
+    <!-- STEP 1 メニュー -->
+    <section class="view" id="step1">
+      <p class="lead">ご希望のメニューをお選びください（複数可・タップで選択）。</p>
+      <div id="menuList"></div>
+    </section>
+
+    <!-- STEP 2 日時 -->
+    <section class="view hide" id="step2">
+      <p class="lead">ご希望のご来店日時をお選びください。</p>
+      <div class="sec">
+        <h2>ご希望日</h2>
+        <input type="date" class="field" id="fDate">
+      </div>
+      <div class="sec">
+        <h2>ご希望時間<small>（10:00〜17:30）</small></h2>
+        <div class="chips" id="timeChips"></div>
+      </div>
+    </section>
+
+    <!-- STEP 3 お客様情報 -->
+    <section class="view hide" id="step3">
+      <p class="lead">ご連絡先を教えてください。</p>
+      <div class="sec">
+        <label for="fName">お名前<span class="req">必須</span></label>
+        <input type="text" class="field" id="fName" placeholder="山田 花子" autocomplete="name">
+        <label for="fPhone">電話番号<span class="req">必須</span></label>
+        <input type="tel" class="field" id="fPhone" inputmode="tel" placeholder="090-1234-5678" autocomplete="tel">
+        <label for="fNotes">ご要望・備考<small>（任意）</small></label>
+        <textarea class="field" id="fNotes" placeholder="例：当日はベビーカーで伺います／カウンセリング希望 など"></textarea>
+      </div>
+    </section>
+
+    <!-- STEP 4 確認 -->
+    <section class="view hide" id="step4">
+      <p class="lead">この内容でリクエストします。よろしければ送信してください。</p>
+      <div class="rev-card" id="reviewCard"></div>
+    </section>
+
+    <div class="foot" id="salonFoot"></div>
+  </div>
+
+  <!-- 完了画面 -->
+  <div id="done" class="done hide">
+    <div class="mark">✅</div>
+    <h1>リクエストを承りました</h1>
+    <p>日時を確認次第、<br>LINEにてご連絡いたします。</p>
+    <span class="soft-note">※この時点ではまだ確定ではありません</span>
+    <div class="foot" id="salonFoot2"></div>
+  </div>
+</div>
+
+<!-- 下部固定ドック（合計＋ナビ） -->
+<div class="dock" id="dock">
+  <div class="dock-sum">
+    <span class="lbl" id="sumLbl">メニュー未選択</span>
+    <span class="val" id="sumVal">¥0<small id="sumMin"></small></span>
+  </div>
+  <div class="dock-nav">
+    <button class="btn back hide" id="backBtn" onclick="go(-1)">戻る</button>
+    <button class="btn" id="nextBtn" onclick="go(1)">次へ</button>
+  </div>
+</div>
+
+<script>
+const CFG = /*__CFG__*/null;
+
+// メニューマスター（カテゴリ・名前・分・円）
+const MENU_MASTER = [
+  { cat:'カット', name:'カット（ナノバブル頭皮洗浄付き）', min:60, yen:4950 },
+  { cat:'カット', name:'カット＋スカルプケア', min:75, yen:10450 },
+  { cat:'カット', name:'スクールカット（中学・高校生）', min:60, yen:3850 },
+  { cat:'ヘアカラー', name:'脱白髪染めハイライトメンテナンスカラー', min:75, yen:5850 },
+  { cat:'ヘアカラー', name:'脱白髪染めハイライトカラー', min:180, yen:18700 },
+  { cat:'ヘアカラー', name:'アプリエカラー', min:90, yen:12650 },
+  { cat:'ヘアカラー', name:'ノンジアミンカラー', min:90, yen:14300 },
+  { cat:'ヘアカラー', name:'シークレットハイライト', min:120, yen:14300 },
+  { cat:'ヘアカラー', name:'ブリーチなしダブルカラー', min:180, yen:13200 },
+  { cat:'ヘアカラー', name:'ハイライトカラー', min:240, yen:22000 },
+  { cat:'ヘアカラー', name:'ハイトーンカラー', min:180, yen:28000 },
+  { cat:'デジタルパーマ', name:'酸性デジタルパーマ', min:120, yen:16850 },
+  { cat:'ストレートパーマ', name:'酸性ストレート', min:240, yen:28600 },
+  { cat:'ストレートパーマ', name:'髪質改善ストレート', min:180, yen:22000 },
+  { cat:'トリートメント', name:'4STEPトリートメント', min:60, yen:5500 },
+  { cat:'トリートメント', name:'頭皮スペシャルケア', min:45, yen:5500 },
+  { cat:'ヘアセット', name:'ヘアセット・ヘアアレンジ', min:60, yen:5500 },
+];
+
+const $ = s => document.querySelector(s);
+const esc = s => String(s??'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const yen = n => '¥' + Number(n||0).toLocaleString('ja-JP');
+
+const SALON = (CFG && CFG.salonName) || 'hair ravel';
+const LIFF_ID = (CFG && CFG.liffId) || '';
+
+const state = {
+  step: 1,
+  selected: new Set(),   // 選択中メニューのindex
+  date: '',
+  time: '',
+  line_user_id: '',
+  line_display_name: '',
+};
+
+// ---------- 初期化 ----------
+function init(){
+  document.title = `ご予約リクエスト｜${SALON}`;
+  $('#salonFoot').textContent = SALON.toUpperCase();
+  $('#salonFoot2').textContent = SALON.toUpperCase();
+
+  // 日付の下限＝今日
+  const t = new Date();
+  const todayStr = `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}`;
+  $('#fDate').min = todayStr;
+
+  renderMenu();
+  renderTimes();
+  updateDock();
+  if(LIFF_ID) initLiff();
+}
+
+// ---------- STEP 1 メニュー ----------
+function renderMenu(){
+  const cats = [];
+  MENU_MASTER.forEach((m, i) => {
+    let c = cats.find(x => x.cat === m.cat);
+    if(!c){ c = { cat:m.cat, items:[] }; cats.push(c); }
+    c.items.push({ ...m, i });
+  });
+  $('#menuList').innerHTML = cats.map(c => `
+    <div class="cat">
+      <div class="cat-head">${esc(c.cat)}</div>
+      ${c.items.map(m => `
+        <button type="button" class="menu-item" data-i="${m.i}" onclick="toggleMenu(${m.i})">
+          <span class="check">✓</span>
+          <span class="mi-body">
+            <span class="mi-name">${esc(m.name)}</span>
+            <span class="mi-meta">約${m.min}分</span>
+          </span>
+          <span class="mi-price">${yen(m.yen)}</span>
+        </button>`).join('')}
+    </div>`).join('');
+}
+function toggleMenu(i){
+  state.selected.has(i) ? state.selected.delete(i) : state.selected.add(i);
+  const el = document.querySelector(`.menu-item[data-i="${i}"]`);
+  if(el) el.classList.toggle('on', state.selected.has(i));
+  updateDock();
+}
+
+// ---------- STEP 2 時間 ----------
+function timeSlots(){
+  const out = [];
+  for(let h=10; h<=17; h++){
+    out.push(`${String(h).padStart(2,'0')}:00`);
+    out.push(`${String(h).padStart(2,'0')}:30`);
+  }
+  return out; // 10:00〜17:30 の30分刻み16スロット
+}
+function renderTimes(){
+  $('#timeChips').innerHTML = timeSlots().map(s =>
+    `<button type="button" class="chip" data-t="${s}" onclick="pickTime('${s}')">${s}</button>`).join('');
+}
+function pickTime(s){
+  state.time = (state.time === s) ? '' : s;
+  document.querySelectorAll('#timeChips .chip').forEach(c =>
+    c.classList.toggle('on', c.dataset.t === state.time));
+}
+
+// ---------- 合計 ----------
+function totals(){
+  let yenSum = 0, minSum = 0;
+  state.selected.forEach(i => { yenSum += MENU_MASTER[i].yen; minSum += MENU_MASTER[i].min; });
+  return { yenSum, minSum, count: state.selected.size };
+}
+function selectedNames(){
+  return [...state.selected].sort((a,b)=>a-b).map(i => MENU_MASTER[i].name);
+}
+function updateDock(){
+  const { yenSum, minSum, count } = totals();
+  $('#sumLbl').textContent = count ? `メニュー${count}点・合計` : 'メニュー未選択';
+  $('#sumVal').innerHTML = `${yen(yenSum)}<small id="sumMin">${minSum ? `／約${minSum}分` : ''}</small>`;
+}
+
+// ---------- ステップ遷移 ----------
+const STEP_LABELS = { 1:'メニュー選択', 2:'希望日時', 3:'お客様情報', 4:'内容の確認' };
+function showStep(n){
+  state.step = n;
+  for(let i=1;i<=4;i++) $('#step'+i).classList.toggle('hide', i!==n);
+  document.querySelectorAll('.steps .dot').forEach(d =>
+    d.classList.toggle('on', Number(d.dataset.d) <= n));
+  $('#stepLabel').textContent = `STEP ${n} / 4 ・ ${STEP_LABELS[n]}`;
+  $('#backBtn').classList.toggle('hide', n===1);
+  $('#nextBtn').textContent = n===4 ? 'この内容でリクエストする' : '次へ';
+  if(n===4) renderReview();
+  window.scrollTo(0,0);
+}
+function validateStep(n){
+  if(n===1){
+    if(state.selected.size===0){ alert('メニューを1つ以上お選びください。'); return false; }
+  }
+  if(n===2){
+    if(!state.date){ alert('ご希望日をお選びください。'); return false; }
+    if(!state.time){ alert('ご希望時間をお選びください。'); return false; }
+  }
+  if(n===3){
+    if(!$('#fName').value.trim()){ alert('お名前をご入力ください。'); return false; }
+    if(!$('#fPhone').value.trim()){ alert('電話番号をご入力ください。'); return false; }
+  }
+  return true;
+}
+function go(dir){
+  if(dir>0){
+    // STEP2のdateはinputから直接拾う
+    if(state.step===2) state.date = $('#fDate').value;
+    if(!validateStep(state.step)) return;
+    if(state.step===4){ submit(); return; }
+    showStep(Math.min(4, state.step+1));
+  } else {
+    showStep(Math.max(1, state.step-1));
+  }
+}
+
+// ---------- STEP 4 確認 ----------
+function renderReview(){
+  const { yenSum, minSum } = totals();
+  const names = selectedNames();
+  const notes = $('#fNotes').value.trim();
+  $('#reviewCard').innerHTML = `
+    <div class="rev-row"><span class="k">メニュー</span><span class="v">${names.map(esc).join('<br>')}</span></div>
+    <div class="rev-row"><span class="k">ご希望日時</span><span class="v">${esc(state.date)}　${esc(state.time)}</span></div>
+    <div class="rev-row"><span class="k">お名前</span><span class="v">${esc($('#fName').value.trim())}</span></div>
+    <div class="rev-row"><span class="k">電話番号</span><span class="v">${esc($('#fPhone').value.trim())}</span></div>
+    ${notes ? `<div class="rev-row"><span class="k">ご要望</span><span class="v">${esc(notes)}</span></div>` : ''}
+    <div class="rev-total"><span class="lbl">合計（税込）</span><span class="amt">${yen(yenSum)}<small>約${minSum}分</small></span></div>`;
+}
+
+// ---------- 送信 ----------
+async function submit(){
+  $('#nextBtn').disabled = true;
+  $('#backBtn').disabled = true;
+  const { yenSum } = totals();
+  const payload = {
+    name: $('#fName').value.trim(),
+    phone: $('#fPhone').value.trim(),
+    services: selectedNames(),
+    preferred_date: state.date,
+    preferred_time: state.time,
+    notes: $('#fNotes').value.trim(),
+    price: yen(yenSum),
+    line_user_id: state.line_user_id,
+    line_display_name: state.line_display_name,
+  };
+  try{
+    const res = await fetch('/api/booking', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(payload),
+    });
+    if(!res.ok) throw new Error();
+    $('#wizard').classList.add('hide');
+    $('#dock').classList.add('hide');
+    $('#done').classList.remove('hide');
+    window.scrollTo(0,0);
+  }catch(e){
+    $('#nextBtn').disabled = false;
+    $('#backBtn').disabled = false;
+    alert('送信できませんでした。電波の良いところでもう一度お試しください。');
+  }
+}
+
+// ---------- LIFF（任意・liffIdがある場合のみ） ----------
+function initLiff(){
+  let done = false;
+  // 3秒で必ずフォールバック（LIFFが応答しなくてもフォームは通常どおり使える）
+  const fallback = setTimeout(() => { if(!done){ done = true; } }, 3000);
+  const s = document.createElement('script');
+  s.src = 'https://static.line-scdn.net/liff/edge/2/sdk.js';
+  s.onload = async () => {
+    try{
+      await window.liff.init({ liffId: LIFF_ID });
+      if(window.liff.isLoggedIn()){
+        const prof = await window.liff.getProfile();
+        state.line_user_id = prof.userId || '';
+        state.line_display_name = prof.displayName || '';
+        if(state.line_display_name && !$('#fName').value) $('#fName').value = state.line_display_name;
+      }
+    }catch(e){ /* 初期化失敗してもフォームは通常利用可 */ }
+    finally{ done = true; clearTimeout(fallback); }
+  };
+  s.onerror = () => { done = true; clearTimeout(fallback); };
+  document.head.appendChild(s);
+}
+
+init();
+</script>
+</body>
+</html>
