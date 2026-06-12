@@ -495,6 +495,17 @@ section('Vercelアダプタ（Deployボタン経路のスモークテスト）')
   try {
     const { default: vercelHandler, config: fnConfig } = await import('../api/index.mjs');
     ok(fnConfig?.api?.bodyParser === false, 'bodyParser無効化（Webhook署名検証のため）');
+
+    // Vercelのルートserver.mjs自動認識（デフォルトエクスポート＝ハンドラ）対応の検証
+    const { default: rootEntry } = await import('../server.mjs');
+    ok(typeof rootEntry === 'function', 'server.mjsのデフォルトエクスポートが関数');
+    {
+      const rootSrv = http.createServer(rootEntry);
+      const rootPort = await listen(rootSrv);
+      ok((await (await fetch(`http://127.0.0.1:${rootPort}/healthz`)).json()).ok === true, 'ルートエントリ経由でhealthz応答');
+      ok((await (await fetch(`http://127.0.0.1:${rootPort}/booking`)).text()).includes('アプリエカラー'), 'ルートエントリ経由で予約フォーム配信');
+      rootSrv.close();
+    }
     const srv = http.createServer(vercelHandler);
     const port = await listen(srv);
     const base = `http://127.0.0.1:${port}`;

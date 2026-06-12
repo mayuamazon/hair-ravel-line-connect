@@ -4,6 +4,7 @@
 import http from 'node:http';
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -471,6 +472,32 @@ export async function createApp(config) {
       return json(res, status, { error: status === 413 ? 'payload too large' : 'internal error' });
     }
   };
+}
+
+// ---------------------------------------------------------------- Vercel対応
+// Vercelはリポジトリ直下の server.mjs を「Nodeサーバーのエントリポイント」として自動認識し、
+// 「デフォルトエクスポート＝リクエストハンドラ（関数）」を要求する。ここで遅延初期化して応える。
+let _vercelHandler = null;
+export default async function vercelEntry(req, res) {
+  try {
+    if (!_vercelHandler) _vercelHandler = loadConfig(process.env).then(createApp);
+    return await (await _vercelHandler)(req, res);
+  } catch (e) {
+    _vercelHandler = null; // 失敗時は次のリクエストで再初期化
+    console.error('hair-ravel 起動/処理エラー:', e);
+    res.statusCode = 500;
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.end(JSON.stringify({ error: 'startup error' }));
+  }
+}
+
+// @vercel/nft（ファイルトレーサ）に public/ を関数バンドルへ同梱させる静的ヒント。実行はされない。
+if (process.env.HR_NFT_TRACE === '1') {
+  readFileSync(path.join(MODULE_DIR, 'public', 'setup.html'));
+  readFileSync(path.join(MODULE_DIR, 'public', 'hearing.html'));
+  readFileSync(path.join(MODULE_DIR, 'public', 'booking.html'));
+  readFileSync(path.join(MODULE_DIR, 'public', 'karte.html'));
+  readFileSync(path.join(MODULE_DIR, 'public', 'admin.html'));
 }
 
 // ---------------------------------------------------------------- 起動（直接実行時のみ）
