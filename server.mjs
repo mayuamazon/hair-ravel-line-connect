@@ -127,11 +127,24 @@ export async function createApp(config) {
   const ctx = { config, store, line };
   ctx.notifyOwner = text => notifyOwner(ctx, text);
 
-  const setupHtml = await fs.readFile(path.join(MODULE_DIR, 'public', 'setup.html'), 'utf8');
-  const hearingHtml = await fs.readFile(path.join(MODULE_DIR, 'public', 'hearing.html'), 'utf8');
-  const bookingHtml = await fs.readFile(path.join(MODULE_DIR, 'public', 'booking.html'), 'utf8').catch(() => null);
-  const karteHtml = await fs.readFile(path.join(MODULE_DIR, 'public', 'karte.html'), 'utf8').catch(() => null);
-  const adminHtml = await fs.readFile(path.join(MODULE_DIR, 'public', 'admin.html'), 'utf8').catch(() => null);
+  // publicフォルダの場所を解決（Vercel等のバンドル環境ではMODULE_DIRが移動することがあるため複数候補を試す）
+  const readPublic = async name => {
+    const candidates = [
+      path.join(MODULE_DIR, 'public', name),
+      path.join(process.cwd(), 'public', name),
+      path.join(MODULE_DIR, '..', 'public', name),
+    ];
+    for (const c of candidates) {
+      try { return await fs.readFile(c, 'utf8'); } catch {}
+    }
+    console.error(`public/${name} が見つかりません（探索先: ${candidates.join(' | ')}）`);
+    return null;
+  };
+  const setupHtml = (await readPublic('setup.html')) || '<h1>setup.html が配備されていません</h1>';
+  const hearingHtml = (await readPublic('hearing.html')) || '<h1>hearing.html が配備されていません</h1>';
+  const bookingHtml = await readPublic('booking.html');
+  const karteHtml = await readPublic('karte.html');
+  const adminHtml = await readPublic('admin.html');
 
   return async function handler(req, res) {
     const url = new URL(req.url, 'http://internal');
@@ -461,12 +474,15 @@ export async function createApp(config) {
 }
 
 // ---------------------------------------------------------------- 起動（直接実行時のみ）
+// 注意: トップレベルawaitは使わない（Vercel等のバンドラがCJS変換する環境で致命傷になるため）
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const config = await loadConfig();
-  const handler = await createApp(config);
-  http.createServer(handler).listen(config.port, config.host, () => {
-    console.log(`hair-ravel LINE Connect 起動: http://${config.host}:${config.port}/setup`);
-    console.log(`データ保存先: ${config.storage === 'github' ? `GitHub ${config.githubRepo}` : config.dataDir}`);
-    console.log('トークンはこの環境の外に送信されません（送信先は api.line.me のみ）');
-  });
+  (async () => {
+    const config = await loadConfig();
+    const handler = await createApp(config);
+    http.createServer(handler).listen(config.port, config.host, () => {
+      console.log(`hair-ravel LINE Connect 起動: http://${config.host}:${config.port}/setup`);
+      console.log(`データ保存先: ${config.storage === 'github' ? `GitHub ${config.githubRepo}` : config.dataDir}`);
+      console.log('トークンはこの環境の外に送信されません（送信先は api.line.me のみ）');
+    });
+  })().catch(e => { console.error('起動失敗:', e); process.exit(1); });
 }

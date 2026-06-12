@@ -13,6 +13,7 @@ export default async function vercelHandler(req, res) {
     return await handler(req, res);
   } catch (e) {
     handlerPromise = null; // 初期化失敗時は次のリクエストで再試行
+    console.error('hair-ravel 起動/処理エラー:', e); // Vercelのログに原因を残す
     res.statusCode = 500;
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.end(JSON.stringify({ error: 'startup error' }));
