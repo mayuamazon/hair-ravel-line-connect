@@ -270,7 +270,6 @@ section('E2E：サーバー一気通貫（モックLINE API使用・外部送信
      && lastLine().body.messages[0].text.includes('本日 花子'), '本日一覧通知API：オーナーLINEに本日の一覧');
 
   // ③ 前日リマインドcron（確定済み・明日 = j1）
-  ok((await fetch(base + '/api/cron/reminder')).status === 401, 'リマインドcron：認証なしは401');
   const c1 = await fetch(base + '/api/cron/reminder', { headers: { Authorization: 'Bearer cron-secret-1' } });
   const cj1 = await c1.json();
   ok(cj1.sent === 1, 'リマインドcron：明日の確定予約に送信');
@@ -319,6 +318,8 @@ section('E2E：サーバー一気通貫（モックLINE API使用・外部送信
   const gatePort = await listen(gateApp);
   ok((await fetch(`http://127.0.0.1:${gatePort}/api/settings`)).status === 401, 'ADMIN_TOKEN設定時：トークンなしは401');
   ok((await fetch(`http://127.0.0.1:${gatePort}/api/settings`, { headers: { 'X-Admin-Token': 'admin-tok-1' } })).status === 200, 'ADMIN_TOKEN設定時：正しいトークンで許可');
+  ok((await fetch(`http://127.0.0.1:${gatePort}/api/cron/reminder`)).status === 401, 'ADMIN_TOKEN設定時：cronも認証なしは401');
+  ok((await fetch(`http://127.0.0.1:${gatePort}/api/cron/thank-you`, { headers: { Authorization: 'Bearer wrong-secret' } })).status === 401, 'ADMIN_TOKEN設定時：不正Bearerは401');
   gateApp.close();
 
   app.close(); mockLine.close();

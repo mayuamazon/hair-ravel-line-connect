@@ -266,9 +266,9 @@ export async function createApp(config) {
         return json(res, 200, { ok: true, sent: ids.length });
       }
 
-      // ---------- ③前日リマインドcron ----------
+      // ---------- ③前日リマインドcron（cron secret または 管理者） ----------
       if ((method === 'GET' || method === 'POST') && p === '/api/cron/reminder') {
-        if (!cronOk(req, config)) return json(res, 401, { error: 'unauthorized' });
+        if (!(cronOk(req, config) || adminOk(req, config))) return json(res, 401, { error: 'unauthorized' });
         const tomorrow = jstToday(1);
         const targets = (await store.listBookings())
           .filter(b => b.status === 'confirmed' && b.confirmed_date === tomorrow && b.line_user_id);
@@ -286,9 +286,9 @@ export async function createApp(config) {
         return json(res, 200, { ok: true, targets: targets.length, sent });
       }
 
-      // ---------- ⑤サンクス + ⑥そろそろ cron ----------
+      // ---------- ⑤サンクス + ⑥そろそろ cron（cron secret または 管理者） ----------
       if ((method === 'GET' || method === 'POST') && p === '/api/cron/thank-you') {
-        if (!cronOk(req, config)) return json(res, 401, { error: 'unauthorized' });
+        if (!(cronOk(req, config) || adminOk(req, config))) return json(res, 401, { error: 'unauthorized' });
         const yesterday = jstToday(-1);
         const today = jstToday();
         const all = (await store.listBookings()).filter(b => b.status === 'confirmed' && b.line_user_id);
