@@ -57,6 +57,16 @@ const adminOk = (req, config) => {
 };
 const cronOk = (req, config) => !!config.cronSecret && safeEq(bearerOf(req), config.cronSecret);
 
+// booking → 顧客 のマッチング（line_user_id一致 → 電話番号(数字のみ) → 名前(空白除去)の順）
+const onlyDigits = s => String(s || '').replace(/\D/g, '');
+const normName = s => String(s || '').replace(/[\s　]/g, '');
+function matchCustomerFor(booking, customers) {
+  return customers.find(c => booking.line_user_id && c.line_user_id === booking.line_user_id)
+    || customers.find(c => booking.phone && onlyDigits(c.phone) && onlyDigits(c.phone) === onlyDigits(booking.phone))
+    || customers.find(c => normName(c.name) && normName(c.name) === normName(booking.name))
+    || null;
+}
+
 function readBody(req, limit = 6 * 1024 * 1024) {
   // Vercel等のランタイムが先にボディを読み終えている場合はそれを使う
   if (req.rawBody !== undefined) {
@@ -209,6 +219,47 @@ export async function createApp(config) {
         return json(res, 200, { bookings: await store.listBookings() });
       }
 
+      // ---------- 顧客・カルテ同期（カルテUI ⇄ サーバー） ----------
+      // GET /api/sync → サーバーの全顧客・全カルテ（カルテはrecipes復元済み）
+      if (method === 'GET' && p === '/api/sync') {
+        if (!adminOk(req, config)) return json(res, 401, { error: 'unauthorized' });
+        const customers = await store.listCustomers();
+        const cartes = await store.listCartes();
+        return json(res, 200, { customers, cartes });
+      }
+
+      // POST /api/sync → 一括upsert（初回移行用）
+      if (method === 'POST' && p === '/api/sync') {
+        if (!adminOk(req, config)) return json(res, 401, { error: 'unauthorized' });
+        const d = body() || {};
+        const customers = Array.isArray(d.customers) ? d.customers : [];
+        const cartes = Array.isArray(d.cartes) ? d.cartes : [];
+        for (const c of customers) if (c && c.id) await store.upsertCustomer(c);
+        for (const k of cartes) if (k && k.id) await store.upsertCarte(k);
+        await store.appendLog(`一括同期 顧客${customers.length}件・カルテ${cartes.length}件`);
+        return json(res, 200, { ok: true, customers: customers.length, cartes: cartes.length });
+      }
+
+      // POST /api/customers → 顧客1件upsert
+      if (method === 'POST' && p === '/api/customers') {
+        if (!adminOk(req, config)) return json(res, 401, { error: 'unauthorized' });
+        const d = body();
+        if (!d || !d.id) return json(res, 400, { error: 'id は必須です' });
+        await store.upsertCustomer(d);
+        await store.appendLog('顧客同期 1件');
+        return json(res, 200, { ok: true });
+      }
+
+      // POST /api/cartes → カルテ1件upsert（photosは無視）
+      if (method === 'POST' && p === '/api/cartes') {
+        if (!adminOk(req, config)) return json(res, 401, { error: 'unauthorized' });
+        const d = body();
+        if (!d || !d.id) return json(res, 400, { error: 'id は必須です' });
+        await store.upsertCarte(d);
+        await store.appendLog('カルテ同期 1件');
+        return json(res, 200, { ok: true });
+      }
+
       // ---------- ④来店前ヒアリング ----------
       if (method === 'POST' && p === '/api/hearing') {
         const d = body();
@@ -240,6 +291,19 @@ export async function createApp(config) {
         const targets = (await store.listBookings())
           .filter(b => (b.confirmed_date || b.preferred_date) === today)
           .sort((a, b) => String(a.confirmed_time || a.preferred_time).localeCompare(String(b.confirmed_time || b.preferred_time)));
+        // 「秘書」化のための付帯データを各予約に添える（マッチングはここで行う）
+        const customers = await store.listCustomers();
+        const allCartes = await store.listCartes();
+        for (const b of targets) {
+          const cust = matchCustomerFor(b, customers);
+          b._customer = cust;
+          // その顧客の過去（date < 今日）の最新カルテ1件
+          b._lastCarte = cust
+            ? allCartes
+              .filter(k => k.customer_id === cust.id && String(k.date) < today)
+              .sort((a, c) => String(c.date).localeCompare(String(a.date)))[0] || null
+            : null;
+        }
         const dateLabel = `${Number(today.slice(5, 7))}/${Number(today.slice(8, 10))}`;
         try {
           const notified = await notifyOwner(ctx, ownerTodayListText({ dateLabel, bookings: targets }));

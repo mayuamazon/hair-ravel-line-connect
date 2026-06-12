@@ -569,6 +569,7 @@ function matchCustomer(b){
 // 予約に載っているお客様を顧客台帳に自動登録／LINE情報を補完
 function reconcileCustomers(bookings){
   let changed = false;
+  const touched = [];   // 新規作成/更新した顧客（サーバーへ同期する対象）
   for(const b of bookings){
     if(!b.name) continue;
     let c = matchCustomer(b);
@@ -576,14 +577,15 @@ function reconcileCustomers(bookings){
       c = { id:'c'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),
             name:b.name, kana:'', phone:b.phone||'', birthday:'', note:'',
             ...(b.line_user_id ? { line_user_id:b.line_user_id, line_name:b.line_display_name||'' } : {}) };
-      customers.push(c); changed = true;
+      customers.push(c); changed = true; touched.push(c);
     } else if(b.line_user_id && !c.line_user_id){
       c.line_user_id = b.line_user_id;
       c.line_name = b.line_display_name || c.line_name || '';
-      changed = true;
+      changed = true; touched.push(c);
     }
   }
   if(changed) persist();
+  for(const c of touched) pushCustomer(c);   // connected時のみサーバーへ
 }
 
 async function connectServer(){
@@ -598,6 +600,8 @@ async function connectServer(){
   if(!res.ok){ serverState = 'standalone'; return; }
   const bookings = (await res.json()).bookings || [];
   reconcileCustomers(bookings);
+  // 顧客・カルテをサーバーと双方向同期（サーバー優先・写真はローカル温存）
+  await syncWithServer();
   const t = todayStr();
   serverTodays = bookings
     .filter(b => (b.confirmed_date || b.preferred_date) === t)
@@ -613,6 +617,95 @@ async function connectServer(){
     }));
   serverState = 'connected';
   renderIfHome();
+}
+
+// サーバーのカルテ（customer_id/recipes）⇄ ローカル（customerId/recipes/photos）変換
+function carteFromServer(s, localPhotos){
+  return {
+    id: s.id, customerId: s.customer_id || '',
+    date: s.date || '', services: Array.isArray(s.services) ? s.services : [],
+    recipes: s.recipes && typeof s.recipes === 'object' ? s.recipes : {},
+    products: Array.isArray(s.products) ? s.products : [],
+    memo: s.memo || '',
+    photos: localPhotos || {},   // サーバーは写真を持たないのでローカルを温存
+  };
+}
+function carteToServer(k){
+  return {
+    id: k.id, customer_id: k.customerId || '',
+    date: k.date || '', services: k.services || [],
+    recipes: k.recipes || {}, products: k.products || [],
+    memo: k.memo || '',   // photosは送らない
+  };
+}
+
+// /api/sync で全件取得 → idでローカルにupsert（サーバー優先・写真温存）
+// → ローカルにあってサーバーに無い分を一括アップロード（初回移行）
+async function syncWithServer(){
+  let data;
+  try {
+    const r = await fetch('/api/sync', { headers: adminHeaders() });
+    if(!r.ok) return;
+    data = await r.json();
+  } catch(e){ return; }
+  const srvCustomers = Array.isArray(data.customers) ? data.customers : [];
+  const srvCartes    = Array.isArray(data.cartes) ? data.cartes : [];
+
+  // 顧客：サーバー優先でupsert
+  const custById = new Map(customers.map(c => [c.id, c]));
+  for(const sc of srvCustomers){
+    if(!sc.id) continue;
+    const local = custById.get(sc.id);
+    if(local) Object.assign(local, sc);
+    else { customers.push({ ...sc }); custById.set(sc.id, sc); }
+  }
+  // カルテ：サーバー優先でupsert（ローカルphotosは温存）
+  const carteById = new Map(cartes.map(k => [k.id, k]));
+  for(const sk of srvCartes){
+    if(!sk.id) continue;
+    const local = carteById.get(sk.id);
+    const merged = carteFromServer(sk, local ? local.photos : {});
+    if(local) Object.assign(local, merged);
+    else { cartes.push(merged); carteById.set(sk.id, merged); }
+  }
+
+  // ローカルにあってサーバーに無い分を一括アップロード（初回移行）
+  const srvCustIds = new Set(srvCustomers.map(c => c.id));
+  const srvCarteIds = new Set(srvCartes.map(k => k.id));
+  const upCustomers = customers.filter(c => !srvCustIds.has(c.id));
+  const upCartes = cartes.filter(k => !srvCarteIds.has(k.id)).map(carteToServer);
+  if(upCustomers.length || upCartes.length){
+    try {
+      await fetch('/api/sync', {
+        method:'POST',
+        headers:{ 'Content-Type':'application/json', ...adminHeaders() },
+        body: JSON.stringify({ customers: upCustomers, cartes: upCartes }),
+      });
+    } catch(e){ /* 失敗してもローカルは成立 */ }
+  }
+  persist();
+}
+
+// 書き込み時のサーバー同期（write-through・connected時のみ・UIをブロックしない）
+async function pushCustomer(c){
+  if(serverState !== 'connected') return;
+  try {
+    const r = await fetch('/api/customers', {
+      method:'POST', headers:{ 'Content-Type':'application/json', ...adminHeaders() },
+      body: JSON.stringify(c),
+    });
+    if(!r.ok) throw new Error('http '+r.status);
+  } catch(e){ toast('サーバー保存に失敗しました（端末には保存済み）'); }
+}
+async function pushCarte(k){
+  if(serverState !== 'connected') return;
+  try {
+    const r = await fetch('/api/cartes', {
+      method:'POST', headers:{ 'Content-Type':'application/json', ...adminHeaders() },
+      body: JSON.stringify(carteToServer(k)),
+    });
+    if(!r.ok) throw new Error('http '+r.status);
+  } catch(e){ toast('サーバー保存に失敗しました（端末には保存済み）'); }
 }
 function renderIfHome(){
   const v = document.querySelector('.view.active');
@@ -971,6 +1064,7 @@ function saveCarte(){
   };
   cartes.unshift(entry);
   persist();
+  pushCarte(entry);   // サーバーへ同期（connected時のみ・写真は送らない）
   toast('カルテを保存しました');
   history.back();   // 顧客詳細へ戻る → 履歴に即反映
 }
@@ -996,6 +1090,7 @@ function submitNewCustomer(){
   };
   customers.push(c);
   persist();
+  pushCustomer(c);   // サーバーへ同期（connected時のみ）
   closeNewCustomer();
   toast(`${name} さまを登録しました`);
   go('customer',{id:c.id});

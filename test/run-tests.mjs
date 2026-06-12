@@ -11,7 +11,7 @@ import { encryptJson, decryptJson, createSecretStore } from '../lib/secret-store
 import { serializeFrontmatter, parseFrontmatter, createMarkdownStore, jstToday, daysBetween } from '../lib/markdown-store.mjs';
 import { createFsBackend, createGithubBackend } from '../lib/store-backends.mjs';
 import { getNextVisitDays, isSorosoroDay, recommendHomecare } from '../lib/visit-timing.mjs';
-import { buildConfirmFlex, buildReminderFlex, buildThankYouFlex, sorosoroText, ownerBookingText } from '../lib/line-client.mjs';
+import { buildConfirmFlex, buildReminderFlex, buildThankYouFlex, sorosoroText, ownerBookingText, ownerTodayListText } from '../lib/line-client.mjs';
 import { verifySignature } from '../lib/webhook-handler.mjs';
 import { loadConfig, createApp } from '../server.mjs';
 
@@ -74,6 +74,67 @@ section('Markdownデータ層');
   ok((await store.activeSubscriberIds()).join() === 'U5678efab', 'アクティブ購読者の抽出');
   const subMd = await store.backend.readFile('購読者/alert_subscribers.md');
   ok(subMd.includes('| U5678efab | true |'), '購読者がMarkdownテーブルで保存される');
+}
+
+// ================================================================ 2b. 顧客CSV & カルテ永続化
+section('顧客CSV & カルテ永続化');
+{
+  const store = createMarkdownStore(createFsBackend({ dataDir: path.join(TMP, 'kc-data') }));
+  // CSV往復：カンマ・ダブルクォート・改行・日本語入り
+  const c1 = await store.upsertCustomer({
+    id: 'c1', name: '佐藤, 美咲', kana: 'サトウ ミサキ', phone: '090-1234-5678',
+    birthday: '1992-04-15', line_user_id: 'Uabc', line_name: 'みさき',
+    note: 'ダブル"クォート"とカンマ,入り\n二行目',
+  });
+  ok(c1.created_at && c1.updated_at, '顧客upsert：created_at/updated_atがサーバー側で設定される');
+  const list1 = await store.listCustomers();
+  ok(list1.length === 1, '顧客list：1件');
+  const got = list1[0];
+  ok(got.name === '佐藤, 美咲', 'CSV往復：カンマ入りフィールドを正しく復元');
+  ok(got.note.includes('"クォート"') && got.note.includes('カンマ,入り'), 'CSV往復：ダブルクォート・カンマのエスケープ復元');
+  ok(!got.note.includes('\n') && got.note.includes('二行目'), 'CSV書き込み時に改行を全角スペースへ置換');
+  // 同id上書きで件数が増えない
+  await store.upsertCustomer({ id: 'c1', name: '佐藤 美咲（改名）' });
+  const list2 = await store.listCustomers();
+  ok(list2.length === 1 && list2[0].name === '佐藤 美咲（改名）', '同id上書きで件数が増えない・値が更新される');
+  ok(list2[0].created_at === c1.created_at, 'created_atは新規時のみ（上書きで不変）');
+  await store.upsertCustomer({ id: 'c2', name: '田中 結衣' });
+  ok((await store.listCustomers()).length === 2, '別idは追加される');
+
+  // カルテupsert往復：recipes_json経由でrecipesが復元される／photosが保存されない
+  const k1 = await store.upsertCarte({
+    id: 'k1', customerId: 'c1', date: '2026-05-02', services: ['カット', 'カラー'],
+    recipes: { color: { family: '8Lv ベージュ', detail: 'OX6% 30分', memo: '乳化10分' } },
+    products: ['オージュア クエンチ'], memo: '前髪は眉下キープ。',
+    photos: { before: 'data:image/png;base64,AAAA' },
+  });
+  ok(k1.recipes && k1.recipes.color && k1.recipes.color.family === '8Lv ベージュ', 'カルテ往復：recipes_json経由でrecipesオブジェクトが復元される');
+  ok(k1.customer_id === 'c1', 'カルテ往復：customerId→customer_idに正規化');
+  ok(k1.photos === undefined, 'カルテ：photosが保存されない');
+  const carteFiles = await fs.readdir(path.join(TMP, 'kc-data', 'カルテ'));
+  ok(carteFiles.length === 1 && carteFiles[0].includes('k1'), 'カルテ：1件1ファイルで保存');
+  const carteText = await store.backend.readFile('カルテ/' + carteFiles[0]);
+  ok(!carteText.includes('data:image'), 'カルテファイルに写真データが含まれない');
+  ok(carteText.includes('カラー：8Lv ベージュ'), 'カルテ本文にラベル付きレシピサマリー');
+  // 同id上書き：件数が増えない・同ファイルを維持
+  await store.upsertCarte({ id: 'k1', customerId: 'c1', date: '2026-05-02', services: ['カット'], memo: '更新後メモ' });
+  const cartes2 = await store.listCartes();
+  ok(cartes2.length === 1 && cartes2[0].memo === '更新後メモ', 'カルテ同id上書きで件数が増えない・更新される');
+  ok((await fs.readdir(path.join(TMP, 'kc-data', 'カルテ'))).length === 1, 'カルテ上書きで同一ファイルを維持');
+
+  // ownerTodayListText（秘書化）の単体検証
+  const txt = ownerTodayListText({
+    dateLabel: '6/12',
+    bookings: [{
+      name: '田中 花子', confirmed_time: '14:00', services: ['カット', 'カラー'], status: 'confirmed', line_user_id: 'Ux',
+      hearing_concerns: ['くせ毛・うねり', 'ダメージ'], hearing_style: 'ふんわりボブ',
+      _customer: { id: 'c9', birthday: '2000-06-25' },
+      _lastCarte: { date: '2026-05-02', services: ['カット', 'カラー'], memo: '前髪は眉下キープ。' },
+    }],
+  });
+  ok(txt.includes('🎂 6/25 お誕生日（今月！）'), '本日一覧（秘書）：誕生日＋今月！表示');
+  ok(txt.includes('📒 前回 5/2 カット＋カラー「前髪は眉下キープ。」'), '本日一覧（秘書）：前回カルテ行');
+  ok(txt.includes('✏️ ヒアリング：くせ毛・うねり・ダメージ／ふんわりボブ'), '本日一覧（秘書）：ヒアリング行');
 }
 
 // ================================================================ 3. GitHubバックエンド（モックAPI）
@@ -142,9 +203,10 @@ section('Flexメッセージ & 文面');
 
   const tf = buildThankYouFlex({ salonName: 'Hair ravel', name: '田中', services: ['カラー'], reviewUrl: 'https://g.page/r/x', careUrl: '' });
   const tfs = JSON.stringify(tf);
-  ok(tfs.includes('CMCトリートメント') && tfs.includes('口コミ'), 'サンクスFlexにケア提案と口コミボタン');
+  ok(tfs.includes('CMCトリートメント') && tfs.includes('Googleマップで感想を書く'), 'サンクスFlexにケア提案と感想ボタン');
+  ok(tfs.includes('もちろん任意です'), 'サンクスFlex：reviewUrlありで口コミお願い文言を追加');
   const tf2 = JSON.stringify(buildThankYouFlex({ salonName: 's', name: 'n', services: ['カット'] }));
-  ok(!tf2.includes('口コミ'), '口コミURL未設定ならボタン非表示（追補§7-5）');
+  ok(!tf2.includes('感想を書く') && !tf2.includes('もちろん任意です'), '口コミURL未設定ならボタンも文言も非表示（追補§7-5）');
 
   ok(sorosoroText({ name: '田中 花子', salonName: 'Hair ravel', ownerName: '中村', services: ['カット', 'カラー'] }).includes('田中 花子さん、こんにちは'), 'そろそろ文面');
   ok(ownerBookingText({ name: '田中', phone: '090', services: ['カット'], preferred_date: '2026-07-01', preferred_time: '14:00' }, 'http://a/admin').includes('新しい予約リクエスト'), 'オーナー通知文面');
@@ -261,13 +323,41 @@ section('E2E：サーバー一気通貫（モックLINE API使用・外部送信
   // 管理画面・本日一覧のオーナーLINE通知
   ok((await (await fetch(base + '/admin')).text()).includes('予約一覧を見る'), '管理画面：配信OK（予約一覧ボタンあり）');
   ok((await (await fetch(base + '/karte')).text()).includes('/api/bookings'), 'カルテ画面：サーバー予約連携コードを同梱');
+  ok((await (await fetch(base + '/karte')).text()).includes('/api/sync'), 'カルテ画面：顧客・カルテ同期コード（/api/sync）を同梱');
+
+  // 顧客・カルテ同期API（一括 → 取得）
+  const sync1 = await (await post('/api/sync', {
+    customers: [
+      { id: 'c1', name: '田中 花子', phone: '090-1111-2222', line_user_id: 'Ucustomer004', birthday: `${jstToday().slice(0,4)}-${jstToday().slice(5,7)}-25` },
+    ],
+    cartes: [
+      { id: 'k1', customerId: 'c1', date: jstToday(-30), services: ['カット', 'カラー'],
+        recipes: { color: { family: '8Lv ベージュ', detail: 'x', memo: '' } },
+        memo: '前回メモ：顔まわりレイヤー気に入っていただけた', photos: { before: 'data:image/png;base64,ZZZ' } },
+    ],
+  })).json();
+  ok(sync1.ok === true && sync1.customers === 1 && sync1.cartes === 1, '同期API：POST一括登録の件数');
+  const sg = await (await fetch(base + '/api/sync')).json();
+  ok(sg.customers.length === 1 && sg.customers[0].name === '田中 花子', '同期API：GETで顧客を返す');
+  const gk = sg.cartes.find(k => k.id === 'k1');
+  ok(gk && gk.recipes && gk.recipes.color && gk.recipes.color.family === '8Lv ベージュ', '同期API：GETでカルテのrecipesを復元して返す');
+  ok(gk && gk.photos === undefined && !JSON.stringify(sg).includes('data:image'), '同期API：写真はサーバーに保存されない');
+  // 単件upsert（k1は秘書通知で参照するため別idで検証）
+  ok((await (await post('/api/customers', { id: 'c1', note: '追記メモ' })).json()).ok === true, '同期API：POST /api/customers 単件upsert');
+  ok((await (await post('/api/cartes', { id: 'k99', customerId: 'c1', date: jstToday(-60), services: ['カット'], memo: 'm', photos: { x: 'y' } })).json()).ok === true, '同期API：POST /api/cartes 単件upsert（photos無視）');
+
   const b4 = await (await post('/api/booking', { name: '本日 花子', line_user_id: 'Ucustomer004', services: ['カット'], preferred_date: jstToday(), preferred_time: '11:30' })).json();
   await post(`/api/bookings/${b4.id}/confirm`, {});
   const nt = await (await post('/api/admin/notify-today', {})).json();
   ok(nt.ok === true && nt.count >= 1, '本日一覧通知API：送信成功');
+  const todayMsg = lastLine().body.messages[0].text;
   ok(lastLine().body.to === 'Uowner000000'
-     && lastLine().body.messages[0].text.includes('本日のご予約・来店')
-     && lastLine().body.messages[0].text.includes('本日 花子'), '本日一覧通知API：オーナーLINEに本日の一覧');
+     && todayMsg.includes('本日のご予約・来店')
+     && todayMsg.includes('本日 花子'), '本日一覧通知API：オーナーLINEに本日の一覧');
+  // 「秘書」化：誕生日（今月）＋過去カルテ（メモ付き）＋ヒアリングが本文に含まれる
+  // ※ b4（本日 花子）は line_user_id=Ucustomer004 で顧客c1（誕生日=今月25日）にマッチ
+  ok(todayMsg.includes('🎂') && todayMsg.includes('（今月！）'), '本日一覧（秘書）：誕生日（今月！）が本文に出る');
+  ok(todayMsg.includes('📒 前回') && todayMsg.includes('顔まわりレイヤー'), '本日一覧（秘書）：過去カルテのメモ断片が本文に出る');
 
   // ③ 前日リマインドcron（確定済み・明日 = j1）
   const c1 = await fetch(base + '/api/cron/reminder', { headers: { Authorization: 'Bearer cron-secret-1' } });
