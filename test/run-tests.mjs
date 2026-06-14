@@ -13,6 +13,9 @@ import { createFsBackend, createGithubBackend } from '../lib/store-backends.mjs'
 import { getNextVisitDays, isSorosoroDay, recommendHomecare } from '../lib/visit-timing.mjs';
 import { buildConfirmFlex, buildReminderFlex, buildThankYouFlex, buildProposalFlex, sorosoroText, ownerBookingText, ownerTodayListText, ownerAcceptedText, ownerRepickText } from '../lib/line-client.mjs';
 import { verifySignature } from '../lib/webhook-handler.mjs';
+import { buildExportModel, customerCsv, historyCsv, dataJson, readmeText } from '../lib/drive-export.mjs';
+import { buildMobileViewHtml } from '../lib/mobile-view.mjs';
+import { existsSync, readFileSync } from 'node:fs';
 import { loadConfig, createApp } from '../server.mjs';
 
 let pass = 0, fail = 0;
@@ -110,9 +113,11 @@ section('顧客CSV & カルテ永続化');
   });
   ok(k1.recipes && k1.recipes.color && k1.recipes.color.family === '8Lv ベージュ', 'カルテ往復：recipes_json経由でrecipesオブジェクトが復元される');
   ok(k1.customer_id === 'c1', 'カルテ往復：customerId→customer_idに正規化');
-  ok(k1.photos === undefined, 'カルテ：photosが保存されない');
+  ok(Array.isArray(k1.photos), 'カルテ：photosはメタ配列として保持される');
   const carteFiles = await fs.readdir(path.join(TMP, 'kc-data', 'カルテ'));
   ok(carteFiles.length === 1 && carteFiles[0].includes('k1'), 'カルテ：1件1ファイルで保存');
+  const k1raw = await fs.readFile(path.join(TMP, 'kc-data', 'カルテ', carteFiles[0]), 'utf8');
+  ok(!k1raw.includes('data:image') && !k1raw.includes('AAAA'), 'カルテ：写真バイトはMarkdownに保存されない');
   const carteText = await store.backend.readFile('カルテ/' + carteFiles[0]);
   ok(!carteText.includes('data:image'), 'カルテファイルに写真データが含まれない');
   ok(carteText.includes('カラー：8Lv ベージュ'), 'カルテ本文にラベル付きレシピサマリー');
@@ -350,7 +355,7 @@ section('E2E：サーバー一気通貫（モックLINE API使用・外部送信
   ok(sg.customers.length === 1 && sg.customers[0].name === '田中 花子', '同期API：GETで顧客を返す');
   const gk = sg.cartes.find(k => k.id === 'k1');
   ok(gk && gk.recipes && gk.recipes.color && gk.recipes.color.family === '8Lv ベージュ', '同期API：GETでカルテのrecipesを復元して返す');
-  ok(gk && gk.photos === undefined && !JSON.stringify(sg).includes('data:image'), '同期API：写真はサーバーに保存されない');
+  ok(gk && Array.isArray(gk.photos) && !JSON.stringify(sg).includes('data:image'), '同期API：写真バイトはサーバーに保存されない（メタのみ）');
   // 単件upsert（k1は秘書通知で参照するため別idで検証）
   ok((await (await post('/api/customers', { id: 'c1', note: '追記メモ' })).json()).ok === true, '同期API：POST /api/customers 単件upsert');
   ok((await (await post('/api/cartes', { id: 'k99', customerId: 'c1', date: jstToday(-60), services: ['カット'], memo: 'm', photos: { x: 'y' } })).json()).ok === true, '同期API：POST /api/cartes 単件upsert（photos無視）');
@@ -524,6 +529,101 @@ section('Vercelアダプタ（Deployボタン経路のスモークテスト）')
   } finally {
     for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
   }
+}
+
+// ================================================================ Driveエクスポート（引き継ぎ仕様）
+section('Driveエクスポート＆スマホビュー（引き継ぎ仕様 reference 一致）');
+{
+  // reference を再現する fixture
+  const customers = [
+    { id: 'x1', name: '山田花子', kana: 'ヤマダハナコ', phone: '090-1234-5678', line_user_id: 'U1a2b3c4d5e6f7g8h9', note: '会話控えめ希望／前回クレーム対応済み・丁寧に', allergy: 'ジアミン', first_visit: '2025-06-01', created_at: '2025-06-01' },
+    { id: 'x2', name: '佐藤美希', kana: 'サトウミキ', phone: '080-2222-3333', line_user_id: 'Uaa11bb22cc33dd44ee', note: '明るめ好み。指名は鈴木。子ども連れ来店多い', allergy: '', first_visit: '2025-09-14', created_at: '2025-09-14' },
+    { id: 'x3', name: '高橋優', kana: 'タカハシユウ', phone: '070-4444-5555', line_user_id: 'Uzz99yy88xx77ww66vv', note: 'メンズ。短時間希望。物販興味あり', allergy: '', first_visit: '2026-01-20', created_at: '2026-01-20' },
+  ];
+  const cartes = [
+    { id: 'H0042', customer_id: 'x1', date: '2026-03-01', staff: '鈴木', services: ['カット', 'カラー'], recipes: { color: { family: '8トーン アッシュ／白髪30%／根元のみ', detail: '○○社 ABC-7 1:1 オキシ3% 放置35分', memo: '' } }, memo: '色持ち良好。次回は7トーンで落ち着かせる提案', price: 8800, photos: [{ name: 'H0042_20260301_before_1.jpg', type: 'before', seq: 1 }, { name: 'H0042_20260301_after_1.jpg', type: 'after', seq: 1 }] },
+    { id: 'H0051', customer_id: 'x1', date: '2026-04-20', staff: '鈴木', services: ['カラーリタッチ'], recipes: { color: { family: '7トーン アッシュ／新生部のみ', detail: '○○社 ABC-6 1:1 オキシ3% 放置30分', memo: '' } }, memo: '提案通り7トーン。本人満足', price: 6600, photos: [{ name: 'H0051_20260420_after_1.jpg', type: 'after', seq: 1 }] },
+    { id: 'H0048', customer_id: 'x2', date: '2026-03-30', staff: '鈴木', services: ['カット', 'ハイライト'], recipes: { color: { family: 'ハイライト＋10トーンベージュ／白髪なし', detail: '△△社 ブリーチ 放置20分＋XY-10 1:2 放置25分', memo: '' } }, memo: 'ハイライト3回目。次回はローライト追加検討', price: 13200, photos: [{ name: 'H0048_20260330_before_1.jpg', type: 'before', seq: 1 }, { name: 'H0048_20260330_after_1.jpg', type: 'after', seq: 1 }, { name: 'H0048_20260330_after_2.jpg', type: 'after', seq: 2 }] },
+    { id: 'H0055', customer_id: 'x3', date: '2026-05-11', staff: '田中', services: ['カット'], recipes: {}, memo: 'サイド短め。次回1ヶ月後目安', price: 4400, photos: [{ name: 'H0055_20260511_after_1.jpg', type: 'after', seq: 1 }] },
+  ];
+  const model = buildExportModel({ customers, cartes, salonName: 'サンプル美容室', ownerName: '', now: '2026-06-14T10:00:00+09:00' });
+
+  // BOM
+  const custOut = customerCsv(model);
+  ok(Buffer.from(custOut, 'utf8').slice(0, 3).equals(Buffer.from([0xEF, 0xBB, 0xBF])), 'CSVはUTF-8 BOM付き');
+
+  // reference 完全一致（パスがある時のみ実行）
+  const REF = '/Users/sasayamayu/Downloads/引き継ぎパッケージ/reference';
+  if (existsSync(REF)) {
+    ok(Buffer.from(custOut, 'utf8').equals(readFileSync(`${REF}/顧客マスター.csv`)), 'reference一致：顧客マスター.csv（バイト一致）');
+    ok(Buffer.from(historyCsv(model), 'utf8').equals(readFileSync(`${REF}/施術履歴.csv`)), 'reference一致：施術履歴.csv（バイト一致）');
+    const gotJson = JSON.stringify(JSON.parse(dataJson(model)));
+    const refJson = JSON.stringify(JSON.parse(readFileSync(`${REF}/data.json`, 'utf8')));
+    ok(gotJson === refJson, 'reference一致：data.json（構造一致・金額int・ID文字列ゼロ保持）');
+    ok(readmeText('サンプル美容室') === readFileSync(`${REF}/README.txt`, 'utf8'), 'reference一致：README.txt');
+  } else {
+    console.log('  （reference不在のためバイト一致テストはスキップ）');
+  }
+
+  // data.json の型検証（reference不在でも実行）
+  const doc = JSON.parse(dataJson(model));
+  ok(doc.形式バージョン === '1.0' && doc.サロン名 === 'サンプル美容室', 'data.json：トップ項目');
+  ok(doc.顧客[0].顧客ID === '0001' && typeof doc.顧客[0].顧客ID === 'string', 'data.json：顧客IDは文字列でゼロ埋め');
+  ok(doc.顧客[0].施術履歴[0].金額 === 8800 && typeof doc.顧客[0].施術履歴[0].金額 === 'number', 'data.json：金額は整数');
+  ok(doc.顧客[0].施術履歴[0].メモ === '色持ち良好。次回は7トーンで落ち着かせる提案', 'data.json：履歴のメモキー');
+
+  // スマホビュー（§6 本番方式）
+  const html = buildMobileViewHtml(model);
+  ok(!html.includes('data:image'), 'スマホビュー：base64画像を埋め込まない（§6）');
+  ok(html.includes('thumbs/0001_ヤマダハナコ/H0042_20260301_before_1.jpg'), 'スマホビュー：thumbsへ相対参照');
+  ok(html.includes('写真/0001_ヤマダハナコ/H0042_20260301_before_1.jpg'), 'スマホビュー：拡大は原本を相対参照');
+  ok(html.includes('allergy-banner') && html.includes('アレルギー注意：') && html.includes('ジアミン'), 'スマホビュー：アレルギー赤バナー最優先');
+  ok(html.includes('prefers-reduced-motion') && html.includes('お名前・ふりがなで探す'), 'スマホビュー：検索とreduced-motion');
+  ok(Buffer.byteLength(html, 'utf8') < 60000, 'スマホビュー：base64埋め込み版(153KB)より大幅に軽い');
+
+  // E2E：写真取り込み → 写真/ thumbs/ 保存・命名、エクスポート生成
+  const dataDir = path.join(TMP, 'export-e2e');
+  const store = createMarkdownStore(createFsBackend({ dataDir }));
+  await store.upsertCustomer({ id: 'x1', name: '山田花子', kana: 'ヤマダハナコ', phone: '090-1234-5678', allergy: 'ジアミン', first_visit: '2025-06-01', created_at: '2025-06-01' });
+  await store.upsertCarte({ id: 'H0042', customer_id: 'x1', date: '2026-03-01', staff: '鈴木', services: ['カット', 'カラー'], recipes: { color: { family: '8トーン', detail: 'ABC-7', memo: '' } }, memo: 'OK', price: 8800 });
+  const png1 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+  await store.saveCartePhoto({ folder: '0001_ヤマダハナコ', name: 'H0042_20260301_before_1.jpg', originalB64: `data:image/png;base64,${png1}`, thumbB64: `data:image/png;base64,${png1}` });
+  ok(existsSync(path.join(dataDir, '写真', '0001_ヤマダハナコ', 'H0042_20260301_before_1.jpg')), '写真取り込み：原本を 写真/[ID]_[ふりがな]/ に保存');
+  ok(existsSync(path.join(dataDir, 'thumbs', '0001_ヤマダハナコ', 'H0042_20260301_before_1.jpg')), '写真取り込み：サムネを thumbs/ に保存（§6二重持ち）');
+  const origBytes = await fs.readFile(path.join(dataDir, '写真', '0001_ヤマダハナコ', 'H0042_20260301_before_1.jpg'));
+  ok(!origBytes.toString('utf8').startsWith('data:'), '写真取り込み：data:URLプレフィックスを除去して保存');
+}
+
+// ================================================================ エクスポートAPI（E2E）
+section('エクスポートAPI（サーバー経由）');
+{
+  const dataDir = path.join(TMP, 'export-api');
+  const config = await loadConfig({}, { salonName: 'API美容室', ownerName: '中村', storage: 'fs', dataDir, configDir: path.join(TMP, 'exp-cfg'), passphrase: 'x' });
+  const app = http.createServer(await createApp(config));
+  const port = await new Promise(r => app.listen(0, '127.0.0.1', () => r(app.address().port)));
+  const base = `http://127.0.0.1:${port}`;
+  const post = (p, b, h = {}) => fetch(base + p, { method: 'POST', headers: { 'Content-Type': 'application/json', ...h }, body: JSON.stringify(b) });
+
+  await post('/api/customers', { id: 'c1', name: '渡辺久美子', kana: 'ワタナベクミコ', phone: '090-7890-3456', allergy: '', created_at: '2025-10-01' });
+  await post('/api/cartes', { id: 'k1', customer_id: 'c1', date: '2026-05-20', staff: '中村', services: ['カラー'], recipes: { color: { family: '6トーン', detail: 'ボーテ 6', memo: '' } }, memo: 'リタッチ', price: 6600 });
+  // カルテ保存で即時エクスポートされている（SPEC §7）
+  ok(existsSync(path.join(dataDir, '顧客マスター.csv')), 'カルテ保存で 顧客マスター.csv が即時生成される');
+  ok(existsSync(path.join(dataDir, 'data.json')) && existsSync(path.join(dataDir, 'カルテ_スマホ表示.html')), 'data.json と スマホ表示HTML が生成される');
+
+  // 写真取り込みAPI
+  const png1 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+  const rp = await (await post('/api/cartes/k1/photos', { photos: [{ type: 'after', seq: 1, original: `data:image/png;base64,${png1}`, thumb: `data:image/png;base64,${png1}` }] })).json();
+  ok(rp.ok && rp.photos[0].name === 'k1_20260520_after_1.jpg', '写真API：[履歴ID]_[YYYYMMDD]_[type]_[連番].jpg 命名');
+  const hist = readFileSync(path.join(dataDir, '施術履歴.csv'), 'utf8');
+  ok(hist.includes('k1_20260520_after_1.jpg') && hist.includes('写真/0001_ワタナベクミコ/'), '写真API：施術履歴.csv に写真と原本フォルダが反映');
+
+  // 認可ゲート（ADMIN_TOKEN設定アプリ）
+  const gcfg = await loadConfig({}, { salonName: 's', storage: 'fs', dataDir: path.join(TMP, 'exp-gate'), adminToken: 'tk', configDir: path.join(TMP, 'exp-gate-cfg'), passphrase: 'x' });
+  const gapp = http.createServer(await createApp(gcfg));
+  const gport = await new Promise(r => gapp.listen(0, '127.0.0.1', () => r(gapp.address().port)));
+  ok((await fetch(`http://127.0.0.1:${gport}/api/export`, { method: 'POST' })).status === 401, 'エクスポートAPI：ADMIN_TOKENなしは401');
+  ok((await (await fetch(`http://127.0.0.1:${gport}/api/export`, { method: 'POST', headers: { 'X-Admin-Token': 'tk' } })).json()).ok === true, 'エクスポートAPI：正しいトークンで実行');
+  app.close(); gapp.close();
 }
 
 // ================================================================ 結果

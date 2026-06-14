@@ -705,7 +705,45 @@ async function pushCarte(k){
       body: JSON.stringify(carteToServer(k)),
     });
     if(!r.ok) throw new Error('http '+r.status);
+    await pushCartePhotos(k);   // テキスト保存に続けて写真（原本＋サムネ）を送る
   } catch(e){ toast('サーバー保存に失敗しました（端末には保存済み）'); }
+}
+
+// canvasで長辺〜1000px・JPEG0.7のサムネを生成（サーバーはゼロ依存なのでサムネ生成はブラウザ側）
+function makeThumb(dataUrl){
+  return new Promise(resolve=>{
+    const img = new Image();
+    img.onload = ()=>{
+      const max = 1000, scale = Math.min(1, max/Math.max(img.width, img.height));
+      const w = Math.round(img.width*scale), h = Math.round(img.height*scale);
+      const cv = document.createElement('canvas'); cv.width=w; cv.height=h;
+      cv.getContext('2d').drawImage(img, 0, 0, w, h);
+      try { resolve(cv.toDataURL('image/jpeg', 0.7)); } catch(e){ resolve(dataUrl); }
+    };
+    img.onerror = ()=>resolve(dataUrl);
+    img.src = dataUrl;
+  });
+}
+
+// draft.photos（{before,after,extra}）→ サーバーの写真API形式に変換して送信
+async function pushCartePhotos(k){
+  if(serverState !== 'connected') return;
+  // 端末側カルテの写真は {before,after,extra} の dataURL オブジェクト
+  const ph = (k && k.photos && !Array.isArray(k.photos)) ? k.photos : {};
+  const order = [['before','before',1],['after','after',1],['extra','after',2]];
+  const photos = [];
+  for(const [slot,type,seq] of order){
+    if(!ph[slot]) continue;
+    const thumb = await makeThumb(ph[slot]);
+    photos.push({ type, seq, original: ph[slot], thumb });
+  }
+  if(!photos.length) return;
+  try {
+    await fetch(`/api/cartes/${encodeURIComponent(k.id)}/photos`, {
+      method:'POST', headers:{ 'Content-Type':'application/json', ...adminHeaders() },
+      body: JSON.stringify({ photos }),
+    });
+  } catch(e){ /* 写真送信失敗は致命的でない（テキストは保存済み） */ }
 }
 function renderIfHome(){
   const v = document.querySelector('.view.active');
@@ -1064,7 +1102,7 @@ function saveCarte(){
   };
   cartes.unshift(entry);
   persist();
-  pushCarte(entry);   // サーバーへ同期（connected時のみ・写真は送らない）
+  pushCarte(entry);   // サーバーへ同期（テキスト→写真原本＋サムネ。connected時のみ）
   toast('カルテを保存しました');
   history.back();   // 顧客詳細へ戻る → 履歴に即反映
 }

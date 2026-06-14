@@ -17,6 +17,7 @@ import {
   createLineClient, buildConfirmFlex, buildReminderFlex, buildThankYouFlex, buildProposalFlex,
   sorosoroText, ownerBookingText, ownerHearingText, vacancyText, ownerTodayListText,
 } from './lib/line-client.mjs';
+import { buildExportBundle, buildExportModel, assignCustomerNumbers } from './lib/drive-export.mjs';
 
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
 
@@ -127,6 +128,12 @@ export async function createApp(config) {
   // notifyOwner は ctx 自身を参照するため、先に器を作ってから後付けする（循環参照を避ける）。
   const ctx = { config, store, line };
   ctx.notifyOwner = text => notifyOwner(ctx, text);
+
+  // テキスト類（CSV/JSON/HTML）の即時再生成。失敗してもカルテ保存自体は成立させる。
+  const reexport = async () => {
+    try { await buildExportBundle(store, config); }
+    catch (e) { await store.appendLog('エクスポート失敗: ' + e.message).catch(() => {}); }
+  };
 
   // publicフォルダの場所を解決（Vercel等のバンドル環境ではMODULE_DIRが移動することがあるため複数候補を試す）
   const readPublic = async name => {
@@ -296,18 +303,69 @@ export async function createApp(config) {
         const d = body();
         if (!d || !d.id) return json(res, 400, { error: 'id は必須です' });
         await store.upsertCustomer(d);
+        await reexport();   // テキスト類を即時再生成（SPEC §7）
         await store.appendLog('顧客同期 1件');
         return json(res, 200, { ok: true });
       }
 
-      // POST /api/cartes → カルテ1件upsert（photosは無視）
+      // POST /api/cartes → カルテ1件upsert（写真メタは保持・バイトは別API）
       if (method === 'POST' && p === '/api/cartes') {
         if (!adminOk(req, config)) return json(res, 401, { error: 'unauthorized' });
         const d = body();
         if (!d || !d.id) return json(res, 400, { error: 'id は必須です' });
         await store.upsertCarte(d);
+        await reexport();   // カルテ保存ごとに即時エクスポート（SPEC §7）
         await store.appendLog('カルテ同期 1件');
         return json(res, 200, { ok: true });
+      }
+
+      // POST /api/cartes/:id/photos → 写真の原本＋サムネを保存し、カルテの写真メタを更新（§6）
+      {
+        const m = /^\/api\/cartes\/([^/]+)\/photos$/.exec(p);
+        if (method === 'POST' && m) {
+          if (!adminOk(req, config)) return json(res, 401, { error: 'unauthorized' });
+          const carteId = decodeURIComponent(m[1]);
+          const d = body() || {};
+          const cartes = await store.listCartes();
+          const carte = cartes.find(k => k.id === carteId);
+          if (!carte) return json(res, 404, { error: 'carte not found' });
+          const customers = await store.listCustomers();
+          const numOf = assignCustomerNumbers(customers);
+          const cust = customers.find(c => c.id === carte.customer_id);
+          if (!cust) return json(res, 400, { error: 'customer not found' });
+          const folder = `${numOf.get(cust.id)}_${String(cust.kana || '').replace(/[\/\\:*?"<>|\s　]/g, '')}`;
+          const ymd = String(carte.date || '').slice(0, 10).replace(/-/g, '');
+          const incoming = Array.isArray(d.photos) ? d.photos : [];
+          const meta = [];
+          for (const ph of incoming) {
+            const type = ph.type === 'before' ? 'before' : 'after';
+            const seq = ph.seq || 1;
+            const name = `${carteId}_${ymd}_${type}_${seq}.jpg`;
+            await store.saveCartePhoto({ folder, name, originalB64: ph.original, thumbB64: ph.thumb });
+            meta.push({ name, type, seq });
+          }
+          const merged = [...(carte.photos || []).filter(p => !meta.some(x => x.name === p.name)), ...meta];
+          await store.upsertCarte({ ...carte, photos: merged });
+          await reexport();
+          await store.appendLog(`カルテ写真保存 ${meta.length}枚`);
+          return json(res, 200, { ok: true, photos: merged });
+        }
+      }
+
+      // POST /api/export → 全データをDrive書き出し形式で再生成（手動）
+      if (method === 'POST' && p === '/api/export') {
+        if (!adminOk(req, config)) return json(res, 401, { error: 'unauthorized' });
+        const r = await buildExportBundle(store, config);
+        await store.appendLog(`エクスポート実行 顧客${r.customers}・カルテ${r.cartes}`);
+        return json(res, 200, { ok: true, ...r });
+      }
+
+      // GET/POST /api/cron/export → 日次の全再生成（§7 差分同期の簡易版）
+      if ((method === 'GET' || method === 'POST') && p === '/api/cron/export') {
+        if (!(cronOk(req, config) || adminOk(req, config))) return json(res, 401, { error: 'unauthorized' });
+        const r = await buildExportBundle(store, config);
+        await store.appendLog(`差分エクスポート(cron) 顧客${r.customers}・カルテ${r.cartes}`);
+        return json(res, 200, { ok: true, ...r });
       }
 
       // ---------- ④来店前ヒアリング ----------
