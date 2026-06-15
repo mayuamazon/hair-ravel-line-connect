@@ -170,6 +170,8 @@ export async function createApp(config) {
         return html(res, 200, bookingHtml.replace('/*__CFG__*/null', JSON.stringify(cfg)));
       }
       if (method === 'GET' && p === '/karte' && karteHtml) return html(res, 200, karteHtml);
+      // 公開デモ（認証不要・サーバー非接続・サンプルデータ）。提案でクライアントに見せる用。
+      if (method === 'GET' && p === '/demo' && karteHtml) return html(res, 200, karteHtml.replace('/*__DEMO__*/false', 'true'));
       if (method === 'GET' && p === '/admin' && adminHtml) return html(res, 200, adminHtml);
 
       if (method === 'GET' && p.startsWith('/hearing/')) {

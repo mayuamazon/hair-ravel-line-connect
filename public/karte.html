@@ -116,6 +116,8 @@
     background:var(--accent);color:#fff;text-decoration:none;border-radius:14px;padding:13px 16px;
     font-size:.92rem;font-weight:600;letter-spacing:.04em;box-shadow:0 6px 16px rgba(140,107,90,.22)}
   .hub-link:active{opacity:.9}
+  .demo-banner{margin-top:12px;background:#EAF3EE;color:#3E7A5E;border:1px solid #CDE5D7;
+    border-radius:14px;padding:11px 15px;font-size:.82rem;font-weight:600;line-height:1.5}
   .greet{margin-top:18px;font-size:.85rem;color:var(--sub)}
 
   .searchwrap{position:sticky;top:0;z-index:20;
@@ -313,6 +315,7 @@
       </div>
       <p class="greet">おつかれさまです、中村さん。</p>
       <a class="hub-link" href="/admin">📅 予約・新着リクエスト・LINE連携メニューへ →</a>
+      <div id="demoBanner" class="demo-banner hide">🔍 これはデモ画面です（サンプルのお客様データ・自由に触ってOK）</div>
     </div>
 
     <div class="searchwrap">
@@ -471,6 +474,8 @@
 const MENUS    = ['カット','カラー','パーマ','トリートメント','縮毛矯正','ヘッドスパ','前髪カット','セット'];
 const PRODUCTS = ['オージュア クエンチ','N. ポリッシュオイル','エルジューダ MO','ケラスターゼ オイル'];
 const AVA_BG   = ['#F2E7DC','#EDE0D4','#F5EBE2','#E9DCCE'];
+// 公開デモモード（/demoで配信時にサーバーが true へ置換）。サーバー非接続・サンプルデータのみ。
+const DEMO_MODE = /*__DEMO__*/false;
 
 // レシピ3種：対応するメニューを選ぶと入力欄が自動で開く
 const RECIPE_TYPES = [
@@ -1145,7 +1150,14 @@ buildRecipeSections();
 loadData();
 history.replaceState({view:'home', params:{}}, '');
 render('home');
-connectServer();   // /karte配信時はサーバー予約を読み込んで再描画（失敗時はモックのまま）
+// 通常はサーバー連携。デモモードは非接続でサンプルデータのまま見せる。
+if (DEMO_MODE) {
+  document.getElementById('demoBanner')?.classList.remove('hide');
+  document.querySelector('.hub-link')?.classList.add('hide');   // 管理画面は保護のためデモでは隠す
+  serverState = 'standalone';
+} else {
+  connectServer();   // /karte配信時はサーバー予約を読み込んで再描画（失敗時はモックのまま）
+}
 </script>
 </body>
 </html>

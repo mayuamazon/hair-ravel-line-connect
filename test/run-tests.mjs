@@ -518,6 +518,13 @@ section('Vercelアダプタ（Deployボタン経路のスモークテスト）')
     ok((await (await fetch(base + '/setup')).text()).includes('LINE CONNECT'), 'アダプタ経由で設定画面');
     ok((await (await fetch(base + '/karte')).text()).includes('hair ravel'), 'アダプタ経由でカルテ画面（同梱確認）');
     ok((await (await fetch(base + '/admin')).text()).includes('予約一覧を見る'), 'アダプタ経由で管理画面');
+    {
+      const demo = await (await fetch(base + '/demo')).text();
+      ok(demo.includes('const DEMO_MODE = true') || demo.includes('DEMO_MODE = true'), '公開デモ：DEMO_MODEがtrueで配信される');
+      const karte = await (await fetch(base + '/karte')).text();
+      ok(/DEMO_MODE\s*=\s*\/\*__DEMO__\*\/false/.test(karte), '通常/karteはDEMO_MODE=false（プレースホルダ未置換）');
+      ok((await fetch(base + '/demo')).status === 200, '公開デモ：認証不要で200');
+    }
     const bk = await (await fetch(base + '/api/booking', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: '複製 太郎', preferred_date: jstToday(3), preferred_time: '12:00' }),
