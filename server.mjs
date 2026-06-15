@@ -97,7 +97,11 @@ const json = (res, status, obj) => {
   res.end(JSON.stringify(obj));
 };
 const html = (res, status, body) => {
-  res.writeHead(status, { 'Content-Type': 'text/html; charset=utf-8' });
+  // 画面HTMLは常に最新を取得させる（古い版がキャッシュされてボタンが効かない事故を防ぐ）
+  res.writeHead(status, {
+    'Content-Type': 'text/html; charset=utf-8',
+    'Cache-Control': 'no-store, must-revalidate',
+  });
   res.end(body);
 };
 const baseUrlOf = (req, config) =>
