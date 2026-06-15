@@ -107,15 +107,34 @@ const html = (res, status, body) => {
 const baseUrlOf = (req, config) =>
   config.baseUrl || `${req.headers['x-forwarded-proto'] || 'http'}://${req.headers.host || 'localhost'}`;
 
+// 'YYYY-MM-DD' → 'YYYYMMDD'（insight APIのdate引数形式）
+const ymdCompact = ymd => String(ymd || '').replace(/-/g, '');
+// 当月（JST）の 'YYYY-MM' を返す
+const jstMonth = () => jstToday().slice(0, 7);
+// 前月末日（=今月1日の前日）を 'YYYY-MM-DD' で返す
+function prevMonthLastDay() {
+  const t = jstToday();              // YYYY-MM-DD（JST基準）
+  const firstOfMonth = t.slice(0, 8) + '01';
+  return jstAddDays(firstOfMonth, -1);
+}
+// 'YYYY-MM-DD' に日数を足した 'YYYY-MM-DD'（UTC基準の純粋な日付計算）
+function jstAddDays(ymd, days) {
+  const d = new Date(ymd + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
 // オーナー通知（LINE_OWNER_USER_ID未設定/PLACEHOLDERならスキップ — 追補§7-4）
+// 送信は配信上限ガード（guardedPush）を通す。ガード未設定の経路では素のpushにフォールバック。
 async function notifyOwner(ctx, text) {
-  const { config, line, store } = ctx;
+  const { config, line, store, guardedPush } = ctx;
   const id = config.ownerUserId || '';
   if (!id || id.includes('PLACEHOLDER')) {
     await store.appendLog('オーナー通知スキップ（LINE_OWNER_USER_ID未設定）');
     return false;
   }
-  await line.push(id, [{ type: 'text', text }]);
+  const send = guardedPush || ((to, msgs) => line.push(to, msgs));
+  await send(id, [{ type: 'text', text }], 'オーナー通知');
   return true;
 }
 
@@ -128,9 +147,126 @@ export async function createApp(config) {
     apiBase: config.lineApiBase,
     fetchImpl: config.fetchImpl || fetch,
   });
+  // ---------- 配信上限ガード（200通/月の無料枠を超えないための安全機構） ----------
+  // 結果を60秒キャッシュしてcronの大量送信時にAPIを叩きすぎない。
+  // 取得失敗時はfail-open（true＝送信を止めない）：監視API都合で正常配信を妨げない。
+  let _quotaCache = { at: 0, allow: true };
+  async function quotaAllows() {
+    const now = Date.now();
+    if (now - _quotaCache.at < 60 * 1000) return _quotaCache.allow;
+    let allow = true;
+    try {
+      const quota = await line.getMessageQuota();
+      const cons = await line.getQuotaConsumption();
+      // type:'none' は無制限。type:'limited' のときだけ上限判定する。
+      if (quota && quota.type === 'limited' && Number(cons?.totalUsage) >= Number(quota.value)) {
+        allow = false;
+      }
+    } catch {
+      allow = true; // fail-open
+    }
+    _quotaCache = { at: now, allow };
+    return allow;
+  }
+  // 送信関数を薄くラップ：上限到達ならログを残して送らない（reply＝無料は対象外）。
+  async function guardedPush(to, messages, label) {
+    if (!(await quotaAllows())) {
+      await store.appendLog(`配信上限(200通)到達のためスキップ: ${label}`);
+      return { skipped: true };
+    }
+    return line.push(to, messages);
+  }
+  async function guardedMulticast(ids, messages, label) {
+    if (!(await quotaAllows())) {
+      await store.appendLog(`配信上限(200通)到達のためスキップ: ${label}`);
+      return { skipped: true };
+    }
+    return line.multicast(ids, messages);
+  }
+
+  // ---------- ライブ統計（配信量＋友だち数）。LINE未設定/取得失敗でも例外を投げず各値nullで返す ----------
+  // used=消費数, limit=quota.value（type:'none'なら無制限＝null）, remaining=limit-used。
+  // followers/blocks はJST前日のinsight（当日分は未確定のため）。statusがready以外はfollowers=null。
+  async function buildLineStats() {
+    if (!config.accessToken) {
+      return { used: null, limit: null, remaining: null, followers: null, blocks: null, followersStatus: null, asOf: jstToday(-1), error: 'LINE未設定' };
+    }
+    const out = { used: null, limit: null, remaining: null, followers: null, blocks: null, followersStatus: null, asOf: jstToday(-1) };
+    try {
+      const quota = await line.getMessageQuota();
+      const cons = await line.getQuotaConsumption();
+      out.used = Number(cons?.totalUsage) || 0;
+      out.limit = quota && quota.type === 'none' ? null : (Number(quota?.value) || 0);
+      out.remaining = out.limit != null ? out.limit - out.used : null;
+    } catch (e) {
+      out.error = 'LINE統計を取得できませんでした';
+    }
+    try {
+      const ins = await line.getInsightFollowers(ymdCompact(jstToday(-1)));
+      if (ins && ins.status === 'ready') {
+        out.followers = Number(ins.followers) || 0;
+        out.blocks = Number(ins.blocks) || 0;
+        out.followersStatus = 'ready';
+      } else {
+        out.followers = null;
+        out.blocks = ins ? (Number(ins.blocks) || null) : null;
+        out.followersStatus = ins ? ins.status : null;
+      }
+    } catch (e) {
+      out.followers = null;
+      if (!out.error) out.error = 'LINE統計を取得できませんでした';
+    }
+    return out;
+  }
+
+  // ---------- 月次レポート（当月JSTの集計。クーポンは扱わない＝今ある数字のみ） ----------
+  async function buildMonthlyReport() {
+    const month = jstMonth();              // 'YYYY-MM'
+    const today = jstToday();              // 'YYYY-MM-DD'
+    const stats = await buildLineStats();  // friends/blocks/sent(used)/limit を流用
+    // 前月比：当月のfollowers − 前月末日のfollowers（どちらか取れない/unreadyなら null）
+    let friendsDelta = null;
+    if (stats.followers != null && config.accessToken) {
+      try {
+        const prev = await line.getInsightFollowers(ymdCompact(prevMonthLastDay()));
+        if (prev && prev.status === 'ready') friendsDelta = stats.followers - (Number(prev.followers) || 0);
+      } catch { friendsDelta = null; }
+    }
+    // 予約集計（当月）：created_at が当月＝新規、status=confirmed かつ confirmed_date が当月＝確定、
+    // confirmed_date が当月かつ今日以前＝来店。
+    const bookings = await store.listBookings();
+    const inMonth = ymd => String(ymd || '').slice(0, 7) === month;
+    const newBookings = bookings.filter(b => inMonth(b.created_at)).length;
+    const confirmed = bookings.filter(b => b.status === 'confirmed' && inMonth(b.confirmed_date)).length;
+    const visits = bookings.filter(b => inMonth(b.confirmed_date) && String(b.confirmed_date) <= today).length;
+    return {
+      month,
+      friends: stats.followers,
+      friendsDelta,
+      blocks: stats.blocks,
+      sent: stats.used,
+      limit: stats.limit,
+      newBookings, confirmed, visits,
+    };
+  }
+  // レポート → オーナーへ送る1通のテキスト
+  function monthlyReportText(r) {
+    const delta = r.friendsDelta == null ? '—' : (r.friendsDelta >= 0 ? `+${r.friendsDelta}` : `${r.friendsDelta}`);
+    const friends = r.friends == null ? '—' : `${r.friends}`;
+    const sent = r.sent == null ? '—' : `${r.sent}`;
+    const limit = r.limit == null ? '無制限' : `${r.limit}`;
+    return [
+      `📊 ${r.month} ${config.salonName} 月次レポート`,
+      `👥友だち ${friends}人（前月比 ${delta}）`,
+      `📨今月の配信 ${sent}/${limit}通`,
+      `🆕新規予約 ${r.newBookings} ・✅確定 ${r.confirmed} ・💈来店 ${r.visits}`,
+    ].join('\n');
+  }
+
   // ctx は webhook-handler 等に渡す共有コンテキスト。
   // notifyOwner は ctx 自身を参照するため、先に器を作ってから後付けする（循環参照を避ける）。
-  const ctx = { config, store, line };
+  // 送信は配信上限ガードを通すため guardedPush/guardedMulticast を ctx に載せる。
+  const ctx = { config, store, line, guardedPush, guardedMulticast, quotaAllows };
   ctx.notifyOwner = text => notifyOwner(ctx, text);
 
   // テキスト類（CSV/JSON/HTML）の即時再生成。失敗してもカルテ保存自体は成立させる。
@@ -237,11 +373,11 @@ export async function createApp(config) {
           let pushed = false;
           if (b.line_user_id) {
             try {
-              await line.push(b.line_user_id, [buildConfirmFlex({
+              const r = await guardedPush(b.line_user_id, [buildConfirmFlex({
                 salonName: config.salonName, date: b.confirmed_date, time: b.confirmed_time,
                 services: b.services, price: b.price,
-              })]);
-              pushed = true;
+              })], '確定Flex');
+              pushed = !(r && r.skipped);
             } catch (e) { await store.appendLog(`確定通知失敗 ${b.id}: ${e.message}`); }
           }
           await store.appendLog(`予約確定 ${b.name} ${b.confirmed_date} ${b.confirmed_time}${pushed ? '（顧客へFlex送信）' : ''}`);
@@ -264,12 +400,12 @@ export async function createApp(config) {
           let pushed = false;
           if (b.line_user_id) {
             try {
-              await line.push(b.line_user_id, [buildProposalFlex({
+              const r = await guardedPush(b.line_user_id, [buildProposalFlex({
                 salonName: config.salonName, name: b.name,
                 origDate: b.preferred_date, origTime: b.preferred_time,
                 date: b.proposed_date, time: b.proposed_time, bookingId: b.id,
-              })]);
-              pushed = true;
+              })], '別日提案');
+              pushed = !(r && r.skipped);
             } catch (e) { await store.appendLog(`別日提案の送信失敗 ${b.id}: ${e.message}`); }
           }
           await store.appendLog(`別日提案 ${b.name} ${b.proposed_date} ${b.proposed_time}`);
@@ -430,16 +566,41 @@ export async function createApp(config) {
         }
       }
 
+      // ---------- 管理画面ライブ統計（配信量＋友だち数） ----------
+      if (method === 'GET' && p === '/api/admin/line-stats') {
+        if (!adminOk(req, config)) return json(res, 401, { error: 'unauthorized' });
+        return json(res, 200, await buildLineStats());
+      }
+
+      // ---------- 月次レポート（数字の取得のみ・送信なし） ----------
+      if (method === 'GET' && p === '/api/admin/monthly-report') {
+        if (!adminOk(req, config)) return json(res, 401, { error: 'unauthorized' });
+        return json(res, 200, await buildMonthlyReport());
+      }
+
+      // ---------- 月次レポートをオーナーへ1通push（cron secret または 管理者） ----------
+      if ((method === 'GET' || method === 'POST') && p === '/api/cron/monthly-report') {
+        if (!(cronOk(req, config) || adminOk(req, config))) return json(res, 401, { error: 'unauthorized' });
+        const report = await buildMonthlyReport();
+        let notified = false;
+        try {
+          notified = await notifyOwner(ctx, monthlyReportText(report));
+        } catch (e) { await store.appendLog(`月次レポート通知失敗: ${e.message}`); }
+        await store.appendLog(`月次レポートをオーナーへ送信（${report.month}）`);
+        return json(res, 200, { ok: true, notified, report });
+      }
+
       // ---------- ⑦空き枠アラート（cron secret または 管理者） ----------
       if (method === 'POST' && p === '/api/vacancy-alert') {
         if (!(cronOk(req, config) || adminOk(req, config))) return json(res, 401, { error: 'unauthorized' });
         const d = body() || {};
         const ids = await store.activeSubscriberIds();
         if (!ids.length) return json(res, 200, { ok: true, sent: 0 });
-        await line.multicast(ids, [{
+        const mr = await guardedMulticast(ids, [{
           type: 'text',
           text: vacancyText({ salonName: config.salonName, date: d.date || jstToday(), slots: d.slots, custom: d.text }),
-        }]);
+        }], '空き枠アラート');
+        if (mr && mr.skipped) return json(res, 200, { ok: true, sent: 0, skipped: true });
         await store.appendLog(`空き枠アラート送信 ${ids.length}名`);
         return json(res, 200, { ok: true, sent: ids.length });
       }
@@ -453,11 +614,11 @@ export async function createApp(config) {
         let sent = 0;
         for (const b of targets) {
           try {
-            await line.push(b.line_user_id, [buildReminderFlex({
+            const r = await guardedPush(b.line_user_id, [buildReminderFlex({
               salonName: config.salonName, date: b.confirmed_date, time: b.confirmed_time,
               services: b.services, hearingUrl: `${baseUrlOf(req, config)}/hearing/${b.id}`,
-            })]);
-            sent++;
+            })], '前日リマインド');
+            if (!(r && r.skipped)) sent++;
           } catch (e) { await store.appendLog(`リマインド失敗 ${b.id}: ${e.message}`); }
         }
         await store.appendLog(`前日リマインドcron 対象${targets.length}件 送信${sent}件`);
@@ -474,22 +635,31 @@ export async function createApp(config) {
         for (const b of all) {
           try {
             if (b.confirmed_date === yesterday) {
-              await line.push(b.line_user_id, [buildThankYouFlex({
+              const r = await guardedPush(b.line_user_id, [buildThankYouFlex({
                 salonName: config.salonName, name: b.name, visitDate: b.confirmed_date,
                 services: b.services, careUrl: config.careUrl, reviewUrl: config.reviewUrl,
-              })]);
-              thanks++;
+              })], 'サンクスLINE');
+              if (!(r && r.skipped)) thanks++;
             } else if (isSorosoroDay(b.confirmed_date, b.services, today)) {
-              await line.push(b.line_user_id, [{
+              const r = await guardedPush(b.line_user_id, [{
                 type: 'text',
                 text: sorosoroText({ name: b.name, salonName: config.salonName, ownerName: config.ownerName, services: b.services }),
-              }]);
-              sorosoro++;
+              }], 'そろそろリマインド');
+              if (!(r && r.skipped)) sorosoro++;
             }
           } catch (e) { await store.appendLog(`サンクス/そろそろ失敗 ${b.id}: ${e.message}`); }
         }
         await store.appendLog(`サンクスcron サンクス${thanks}件・そろそろ${sorosoro}件`);
-        return json(res, 200, { ok: true, thanks, sorosoro });
+        // 月初(JST 1日)はこの日次cronの中で月次レポートもオーナーへ1通送る
+        // （Hobbyプランのcron本数制限を避けるため専用cronは作らない）
+        let monthlyReportSent = false;
+        if (today.slice(8, 10) === '01') {
+          try {
+            monthlyReportSent = await notifyOwner(ctx, monthlyReportText(await buildMonthlyReport()));
+            await store.appendLog('月次レポートをオーナーへ送信');
+          } catch (e) { await store.appendLog(`月次レポート送信失敗: ${e.message}`); }
+        }
+        return json(res, 200, { ok: true, thanks, sorosoro, monthlyReportSent });
       }
 
       // ---------- 設定（管理者のみ・秘密はマスク） ----------

@@ -242,6 +242,8 @@ section('Webhook署名検証（HMAC-SHA256 / timing-safe）');
 section('E2E：サーバー一気通貫（モックLINE API使用・外部送信なし）');
 {
   // --- モックLINE API ---
+  // 配信量は mockUsage で差し替え可能（既定5＝上限200未満なので既存の送信テストが通る）。
+  let mockUsage = 5;
   const lineCalls = [];
   const mockLine = http.createServer(async (req, res) => {
     let raw = ''; for await (const c of req) raw += c;
@@ -249,6 +251,10 @@ section('E2E：サーバー一気通貫（モックLINE API使用・外部送信
     res.writeHead(200, { 'Content-Type': 'application/json' });
     if (req.url === '/v2/bot/info') return res.end(JSON.stringify({ displayName: 'テストサロンBot', basicId: '@test' }));
     if (req.url.startsWith('/v2/bot/profile/')) return res.end(JSON.stringify({ displayName: 'テスト顧客', userId: req.url.split('/').pop() }));
+    // 監視API（B/C/D機能）
+    if (req.url === '/v2/bot/message/quota') return res.end(JSON.stringify({ type: 'limited', value: 200 }));
+    if (req.url === '/v2/bot/message/quota/consumption') return res.end(JSON.stringify({ totalUsage: mockUsage }));
+    if (req.url.startsWith('/v2/bot/insight/followers')) return res.end(JSON.stringify({ status: 'ready', followers: 3, targetedReaches: 3, blocks: 0 }));
     res.end('{}');
   });
   const linePort = await listen(mockLine);
@@ -483,7 +489,81 @@ section('E2E：サーバー一気通貫（モックLINE API使用・外部送信
   ok((await fetch(`http://127.0.0.1:${gatePort}/api/cron/reminder`)).status === 401, 'ADMIN_TOKEN設定時：cronも認証なしは401');
   ok((await fetch(`http://127.0.0.1:${gatePort}/api/cron/thank-you`, { headers: { Authorization: 'Bearer wrong-secret' } })).status === 401, 'ADMIN_TOKEN設定時：不正Bearerは401');
   ok((await fetch(`http://127.0.0.1:${gatePort}/api/bookings/bkX/propose`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"date":"2026-07-03","time":"15:00"}' })).status === 401, '提案API：ADMIN_TOKEN設定時に認可なしは401');
+  ok((await fetch(`http://127.0.0.1:${gatePort}/api/admin/line-stats`)).status === 401, 'line-stats：ADMIN_TOKENなしは401');
   gateApp.close();
+
+  // ============ B/C/D：配信量監視・ライブ統計・月次レポート ============
+  // C. ライブ統計（adminOk）：used=5 / limit=200 / followers=3（前日insight）
+  {
+    const st = await (await fetch(base + '/api/admin/line-stats')).json();
+    ok(st.used === 5 && st.limit === 200 && st.remaining === 195, 'line-stats：used/limit/remaining');
+    ok(st.followers === 3 && st.followersStatus === 'ready', 'line-stats：友だち数（前日insight ready）');
+  }
+
+  // D. 月次レポート（adminOk）：当月予約をseedして newBookings/confirmed/visits・friends/sent が返る
+  {
+    // 当月・今日以前で確定した予約（来店扱い）を1件seed
+    const mb = await (await post('/api/booking', { name: '月次 太郎', line_user_id: 'Umonthly01', services: ['カット'], preferred_date: jstToday(), preferred_time: '13:00' })).json();
+    await post(`/api/bookings/${mb.id}/confirm`, { confirmed_date: jstToday() });
+    const rep = await (await fetch(base + '/api/admin/monthly-report')).json();
+    ok(rep.month === jstToday().slice(0, 7), 'monthly-report：当月(YYYY-MM)');
+    ok(rep.newBookings >= 1 && rep.confirmed >= 1 && rep.visits >= 1, 'monthly-report：新規/確定/来店の集計');
+    ok(rep.friends === 3 && rep.sent === 5 && rep.limit === 200, 'monthly-report：friends/sent/limit');
+  }
+
+  // D. cronで月次レポートをオーナーへ1通push（cronOk/adminOk）
+  {
+    const before = lineCalls.length;
+    const cr = await fetch(base + '/api/cron/monthly-report', { headers: { Authorization: 'Bearer cron-secret-1' } });
+    const crj = await cr.json();
+    ok(cr.status === 200 && crj.ok === true && crj.notified === true, 'cron/monthly-report：実行成功・オーナー通知');
+    const sent = lineCalls.slice(before).filter(c => c.path === '/v2/bot/message/push' && c.body.to === 'Uowner000000');
+    ok(sent.length === 1 && sent[0].body.messages[0].text.includes('月次レポート'), 'cron/monthly-report：オーナーへ1通・本文に「月次レポート」');
+  }
+
+  // B. 配信上限ガード：mockUsage=200 で別アプリ（キャッシュ初期化）の確定API → 顧客Flexが送られない＋ログに「配信上限」
+  {
+    mockUsage = 200;
+    const guardDir = path.join(TMP, 'guard-data');
+    const gcfg = await loadConfig({}, {
+      salonName: 'ガードサロン', ownerName: '中村',
+      accessToken: 'test-access-token', channelSecret: 'test-channel-secret',
+      ownerUserId: 'Uguard000000', adminToken: '',
+      storage: 'fs', dataDir: guardDir, lineApiBase: `http://127.0.0.1:${linePort}`,
+      configDir: path.join(TMP, 'guard-cfg'), passphrase: 'guard-pass',
+    });
+    const gApp = http.createServer(await createApp(gcfg));
+    const gPort = await listen(gApp);
+    const gBase = `http://127.0.0.1:${gPort}`;
+    const gPost = (pp, bd, hd = {}) => fetch(gBase + pp, { method: 'POST', headers: { 'Content-Type': 'application/json', ...hd }, body: JSON.stringify(bd) });
+    // LINE連携の確定対象を作る
+    const gb = await (await gPost('/api/booking', { name: '上限 花子', line_user_id: 'Uoverlimit01', services: ['カット'], preferred_date: jstToday(1), preferred_time: '10:00' })).json();
+    const beforeG = lineCalls.length;
+    const gc = await (await gPost(`/api/bookings/${gb.id}/confirm`, {})).json();
+    const pushesToCustomer = lineCalls.slice(beforeG).filter(c => c.path === '/v2/bot/message/push' && c.body.to === 'Uoverlimit01');
+    ok(pushesToCustomer.length === 0 && gc.pushed === false, '配信上限ガード：mockUsage=200で確定Flexを送らない（pushed:false）');
+    const logTxt = await fs.readFile(path.join(guardDir, 'ログ', `${jstToday()}.md`), 'utf8').catch(() => '');
+    ok(logTxt.includes('配信上限'), '配信上限ガード：ログに「配信上限」を記録');
+    gApp.close();
+
+    // mockUsageを5に戻すと別アプリ（新キャッシュ）では送られる
+    mockUsage = 5;
+    const g2 = await createApp(await loadConfig({}, {
+      salonName: 'ガードサロン2', accessToken: 'test-access-token', channelSecret: 'test-channel-secret',
+      ownerUserId: 'Uguard000000', adminToken: '', storage: 'fs', dataDir: path.join(TMP, 'guard2-data'),
+      lineApiBase: `http://127.0.0.1:${linePort}`, configDir: path.join(TMP, 'guard2-cfg'), passphrase: 'g2',
+    }));
+    const g2App = http.createServer(g2);
+    const g2Port = await listen(g2App);
+    const g2Base = `http://127.0.0.1:${g2Port}`;
+    const g2Post = (pp, bd) => fetch(g2Base + pp, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(bd) });
+    const g2b = await (await g2Post('/api/booking', { name: '通常 太郎', line_user_id: 'Unormal01', services: ['カット'], preferred_date: jstToday(1), preferred_time: '11:00' })).json();
+    const beforeG2 = lineCalls.length;
+    const g2c = await (await g2Post(`/api/bookings/${g2b.id}/confirm`, {})).json();
+    const pushG2 = lineCalls.slice(beforeG2).filter(c => c.path === '/v2/bot/message/push' && c.body.to === 'Unormal01');
+    ok(pushG2.length === 1 && g2c.pushed === true, '配信上限ガード：mockUsage=5に戻すと確定Flexが送られる');
+    g2App.close();
+  }
 
   app.close(); mockLine.close();
 }

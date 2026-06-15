@@ -214,12 +214,19 @@
 
         <div class="card" style="margin-top:10px">
           <p style="font-size:.88rem;font-weight:700;margin-bottom:4px">🤖 自動で動いているLINE</p>
+          <div id="lineStats" style="font-size:.82rem;font-weight:600;color:var(--accent);background:var(--soft);
+            border-radius:12px;padding:9px 12px;margin-bottom:10px">統計を読み込み中…</div>
           <div class="auto-row"><span class="when">即時</span><div class="what"><b>新規予約 → あなたに通知</b><span>予約フォーム送信と同時にLINEが届きます</span></div></div>
           <div class="auto-row"><span class="when">即時</span><div class="what"><b>予約確定 → お客様に確定カード</b><span>カレンダーで「確定する」を押した瞬間</span></div></div>
           <div class="auto-row"><span class="when">毎朝 3時</span><div class="what"><b>明日のお客様へリマインド</b><span>ヒアリングフォームのリンク付き</span></div></div>
           <div class="auto-row"><span class="when">毎朝 1時</span><div class="what"><b>昨日のお客様へサンクスLINE</b><span>ホームケア提案＋口コミのお願い</span></div></div>
           <div class="auto-row"><span class="when">毎朝 1時</span><div class="what"><b>そろそろのお客様へ再来店のご案内</b><span>次回目安の14日前に自動送信</span></div></div>
           <p style="font-size:.72rem;color:var(--sub);margin-top:10px">※ 自動配信はVercelが時間どおりに実行します。あなたの操作は不要です。</p>
+        </div>
+
+        <div class="card" style="margin-top:10px">
+          <p style="font-size:.88rem;font-weight:700;margin-bottom:4px">📊 今月のレポート</p>
+          <div id="monthlyReport" style="font-size:.84rem">読み込み中…</div>
         </div>
       </div>
 
@@ -323,6 +330,57 @@ function renderHome(){
   $('#todayPill').textContent = `本日のご予約 ${n}件`;
   if(!$('#vacDate').value) $('#vacDate').value = t;
   renderNewRequests();
+  loadLineStats();        // ライブ統計（配信量＋友だち数）
+  loadMonthlyReport();    // 今月のレポート
+}
+
+// ---------- ライブ統計（🤖 自動で動いているLINE の直下） ----------
+async function loadLineStats(){
+  const el = $('#lineStats'); if(!el) return;
+  try{
+    const res = await fetch('/api/admin/line-stats', { headers: adminHeaders() });
+    const s = await res.json();
+    if(!res.ok || s.error){ el.textContent = '⚠️ LINE統計を取得できませんでした'; return; }
+    // 配信表示：無制限プランか上限プランか
+    let sendTxt;
+    if(s.limit == null){
+      sendTxt = `📨 今月の配信 ${s.used ?? '—'}通（無制限プラン）`;
+    } else {
+      sendTxt = `📨 今月の配信 ${s.used} / ${s.limit}通（残り${s.remaining}）`;
+    }
+    // 友だち数：集計待ちなら「—（集計待ち）」
+    const friTxt = (s.followers == null) ? '👥 友だち —（集計待ち）' : `👥 友だち ${s.followers}人`;
+    el.textContent = `${sendTxt}　${friTxt}`;
+    // 残量が上限の8割超なら警告色（赤系）
+    if(s.limit != null && s.used != null && s.used >= s.limit * 0.8){
+      el.style.color = 'var(--warn)';
+      el.style.background = 'var(--warnbg)';
+    } else {
+      el.style.color = 'var(--accent)';
+      el.style.background = 'var(--soft)';
+    }
+  }catch(e){ el.textContent = '⚠️ LINE統計を取得できませんでした'; }
+}
+
+// ---------- 今月のレポート ----------
+async function loadMonthlyReport(){
+  const el = $('#monthlyReport'); if(!el) return;
+  try{
+    const res = await fetch('/api/admin/monthly-report', { headers: adminHeaders() });
+    const r = await res.json();
+    if(!res.ok){ el.textContent = '⚠️ レポートを取得できませんでした'; return; }
+    const delta = (r.friendsDelta == null) ? '—' : (r.friendsDelta >= 0 ? `+${r.friendsDelta}` : `${r.friendsDelta}`);
+    const friends = (r.friends == null) ? '—' : `${r.friends}人`;
+    const sent = (r.sent == null) ? '—' : `${r.sent}`;
+    const limit = (r.limit == null) ? '無制限' : `${r.limit}`;
+    el.innerHTML = `
+      <div class="auto-row"><span class="when">${esc(r.month)}</span><div class="what">
+        <b>👥 友だち ${esc(friends)}（前月比 ${esc(delta)}）</b>
+        <span>📨 配信 ${esc(sent)} / ${esc(limit)}通</span></div></div>
+      <div class="auto-row"><span class="when">予約</span><div class="what">
+        <b>🆕 新規 ${r.newBookings}　✅ 確定 ${r.confirmed}　💈 来店 ${r.visits}</b>
+        <span>今月の予約状況</span></div></div>`;
+  }catch(e){ el.textContent = '⚠️ レポートを取得できませんでした'; }
 }
 
 // ---------- 新着リクエスト（status==='pending'・作成新しい順） ----------
