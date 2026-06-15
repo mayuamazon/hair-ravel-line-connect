@@ -157,6 +157,7 @@
       <p style="font-size:.8rem;color:var(--sub);margin-bottom:10px">この管理画面は ADMIN_TOKEN で保護されています。</p>
       <input class="field" id="gateToken" type="password" placeholder="ADMIN_TOKEN" autocomplete="off">
       <button class="btn" style="margin-top:12px" onclick="unlock()">開く</button>
+      <p class="result" id="gateMsg"></p>
     </div>
   </div>
 
@@ -278,20 +279,38 @@ let calY, calM, selDate = todayStr();
 
 // ---------- 認証 & データ ----------
 async function loadBookings(){
-  const res = await fetch('/api/bookings', { headers: adminHeaders() });
+  const msg = $('#gateMsg');
+  let res;
+  try {
+    res = await fetch('/api/bookings', { headers: adminHeaders() });
+  } catch(e){
+    $('#gateSec').classList.remove('hide'); $('#main').classList.add('hide');
+    if(msg){ msg.className='result warn'; msg.textContent='✕ 接続に失敗しました。電波の良い所で再試行してください'; }
+    return false;
+  }
   if(res.status === 401){
     $('#gateSec').classList.remove('hide');
     $('#main').classList.add('hide');
+    if(msg){ msg.className='result warn'; msg.textContent='✕ パスワード（ADMIN_TOKEN）が違います。'; }
+    return false;
+  }
+  if(!res.ok){
+    $('#gateSec').classList.remove('hide'); $('#main').classList.add('hide');
+    if(msg){ msg.className='result warn'; msg.textContent='✕ 読み込みに失敗しました（' + res.status + '）'; }
     return false;
   }
   bookings = (await res.json()).bookings || [];
+  if(msg){ msg.className='result'; msg.textContent=''; }
   $('#gateSec').classList.add('hide');
   $('#main').classList.remove('hide');
   renderHome();
   return true;
 }
 function unlock(){
-  sessionStorage.setItem('hr-admin', $('#gateToken').value.trim());
+  const v = $('#gateToken').value.trim();
+  if(!v){ const m=$('#gateMsg'); if(m){ m.className='result warn'; m.textContent='パスワードを入力してください'; } return; }
+  sessionStorage.setItem('hr-admin', v);
+  const m=$('#gateMsg'); if(m){ m.className='result'; m.textContent='確認中…'; }
   loadBookings();
 }
 
