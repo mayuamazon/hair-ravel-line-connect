@@ -72,6 +72,55 @@
   .result.ok{display:block;color:var(--ok)}
   .result.warn{display:block;color:var(--warn)}
 
+  /* LINE自動配信メッセージ行（トグル＋プレビュー） */
+  .msg-row{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line)}
+  .msg-row:last-child{border-bottom:none}
+  .msg-row.off{opacity:.45}
+  .msg-tap{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;background:none;border:none;
+    text-align:left;cursor:pointer;font-family:var(--sans);color:var(--ink);padding:4px 0}
+  .msg-tap:active{opacity:.7}
+  .msg-tap .msg-label{font-size:.86rem;font-weight:700;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+  .msg-tap .msg-meta{font-size:.72rem;color:var(--sub)}
+  .msg-badge{font-size:.6rem;font-weight:800;border-radius:999px;padding:2px 8px;letter-spacing:.03em;flex:none}
+  .msg-badge.free{background:var(--okbg);color:var(--ok)}
+  .msg-badge.count{background:var(--soft);color:var(--sub)}
+  /* トグルスイッチ（44px級タップ領域・チェックボックス） */
+  .switch{flex:none;position:relative;width:52px;height:44px;display:flex;align-items:center;justify-content:center;cursor:pointer}
+  .switch input{position:absolute;opacity:0;width:100%;height:100%;margin:0;cursor:pointer}
+  .switch .track{width:46px;height:28px;border-radius:999px;background:var(--line);transition:background .2s;position:relative}
+  .switch .track::after{content:'';position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;
+    background:#fff;box-shadow:0 1px 3px rgba(61,43,31,.3);transition:transform .2s}
+  .switch input:checked + .track{background:var(--ok)}
+  .switch input:checked + .track::after{transform:translateX(18px)}
+
+  /* プレビューモーダル（LINE風バブル） */
+  .modal-mask{position:fixed;inset:0;z-index:120;background:rgba(61,43,31,.45);display:none;
+    align-items:flex-end;justify-content:center}
+  .modal-mask.show{display:flex;animation:fadein .2s ease both}
+  @keyframes fadein{from{opacity:0}to{opacity:1}}
+  .modal-sheet{width:100%;max-width:480px;background:#7B9E6E;border-radius:22px 22px 0 0;
+    padding:18px 16px calc(22px + env(safe-area-inset-bottom));max-height:84dvh;overflow:auto;
+    animation:slideup .26s cubic-bezier(.2,.9,.3,1.1) both}
+  @keyframes slideup{from{transform:translateY(40px)}to{transform:none}}
+  .modal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+  .modal-head h3{color:#fff;font-size:.95rem;font-weight:700;letter-spacing:.04em}
+  .modal-close{width:34px;height:34px;border:none;border-radius:50%;background:rgba(255,255,255,.25);
+    color:#fff;font-size:1.1rem;cursor:pointer;flex:none}
+  /* テキスト系バブル（LINE風グリーン背景に白吹き出し） */
+  .bub{max-width:80%;border-radius:16px;padding:11px 14px;font-size:.86rem;line-height:1.6;
+    white-space:pre-wrap;word-break:break-word;background:#fff;color:#222;box-shadow:0 1px 2px rgba(0,0,0,.12)}
+  /* flex系バブル（白カード・ヘッダ色帯） */
+  .fbub{max-width:86%;border-radius:14px;overflow:hidden;background:#FFFDF9;box-shadow:0 2px 6px rgba(0,0,0,.18)}
+  .fbub .fhead{padding:12px 14px;color:#fff;font-weight:700;font-size:.9rem}
+  .fbub .fbody{padding:13px 14px;display:flex;flex-direction:column;gap:8px}
+  .fbub .fline{font-size:.84rem;color:#3D2B1F;line-height:1.55;white-space:pre-wrap;word-break:break-word}
+  .fbub .frow{display:flex;gap:10px;font-size:.82rem}
+  .fbub .frow .fl{color:#B8A090;flex:none;min-width:64px}
+  .fbub .frow .fv{color:#3D2B1F;font-weight:600}
+  .fbub .ffoot{padding:0 14px 14px;display:flex;flex-direction:column;gap:8px}
+  .fbub .fbtn{text-align:center;padding:10px;border-radius:12px;background:#8C6B5A;color:#fff;
+    font-size:.82rem;font-weight:700}
+
   /* カレンダー */
   .cal-nav{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
   .cal-nav h3{font-family:var(--serif);font-size:1.15rem;letter-spacing:.08em}
@@ -148,6 +197,18 @@
 </head>
 <body>
 <div class="toast" id="toast"></div>
+
+<!-- LINEメッセージ プレビューモーダル（LINE風バブルで「見た目」を再現） -->
+<div class="modal-mask" id="previewMask" onclick="if(event.target===this)closePreview()">
+  <div class="modal-sheet">
+    <div class="modal-head">
+      <h3 id="previewTitle">プレビュー</h3>
+      <button class="modal-close" onclick="closePreview()" aria-label="閉じる">×</button>
+    </div>
+    <div id="previewBody"></div>
+  </div>
+</div>
+
 <div id="app">
 
   <!-- 管理トークンゲート -->
@@ -216,12 +277,8 @@
           <p style="font-size:.88rem;font-weight:700;margin-bottom:4px">🤖 自動で動いているLINE</p>
           <div id="lineStats" style="font-size:.82rem;font-weight:600;color:var(--accent);background:var(--soft);
             border-radius:12px;padding:9px 12px;margin-bottom:10px">統計を読み込み中…</div>
-          <div class="auto-row"><span class="when">即時</span><div class="what"><b>新規予約 → あなたに通知</b><span>予約フォーム送信と同時にLINEが届きます</span></div></div>
-          <div class="auto-row"><span class="when">即時</span><div class="what"><b>予約確定 → お客様に確定カード</b><span>カレンダーで「確定する」を押した瞬間</span></div></div>
-          <div class="auto-row"><span class="when">毎朝 3時</span><div class="what"><b>明日のお客様へリマインド</b><span>ヒアリングフォームのリンク付き</span></div></div>
-          <div class="auto-row"><span class="when">毎朝 1時</span><div class="what"><b>昨日のお客様へサンクスLINE</b><span>ホームケア提案＋口コミのお願い</span></div></div>
-          <div class="auto-row"><span class="when">毎朝 1時</span><div class="what"><b>そろそろのお客様へ再来店のご案内</b><span>次回目安の14日前に自動送信</span></div></div>
-          <p style="font-size:.72rem;color:var(--sub);margin-top:10px">※ 自動配信はVercelが時間どおりに実行します。あなたの操作は不要です。</p>
+          <div id="lineMsgList">読み込み中…</div>
+          <p style="font-size:.72rem;color:var(--sub);margin-top:10px">※ 自動配信はVercelが時間どおりに実行します。スイッチを切ると、その種類だけ送信を止められます。行をタップすると見た目をプレビューできます。</p>
         </div>
 
         <div class="card" style="margin-top:10px">
@@ -331,6 +388,7 @@ function renderHome(){
   if(!$('#vacDate').value) $('#vacDate').value = t;
   renderNewRequests();
   loadLineStats();        // ライブ統計（配信量＋友だち数）
+  loadLineMessages();     // 自動配信メッセージ一覧（トグル＋プレビュー）
   loadMonthlyReport();    // 今月のレポート
 }
 
@@ -360,6 +418,79 @@ async function loadLineStats(){
       el.style.background = 'var(--soft)';
     }
   }catch(e){ el.textContent = '⚠️ LINE統計を取得できませんでした'; }
+}
+
+// ---------- 自動配信メッセージ一覧（ON/OFFトグル＋プレビュー） ----------
+let lineMsgs = [];
+async function loadLineMessages(){
+  const el = $('#lineMsgList'); if(!el) return;
+  try{
+    const res = await fetch('/api/admin/line-messages', { headers: adminHeaders() });
+    if(!res.ok){ el.textContent = '⚠️ 配信メニューを取得できませんでした'; return; }
+    lineMsgs = (await res.json()).messages || [];
+    el.innerHTML = lineMsgs.map(msgRowHTML).join('');
+  }catch(e){ el.textContent = '⚠️ 配信メニューを取得できませんでした'; }
+}
+function msgRowHTML(m){
+  const badge = m.free
+    ? '<span class="msg-badge free">無料</span>'
+    : '<span class="msg-badge count">カウント</span>';
+  return `<div class="msg-row ${m.on?'':'off'}" id="msgrow-${esc(m.key)}">
+    <button class="msg-tap" onclick="openPreview('${esc(m.key)}')">
+      <span class="msg-label">${esc(m.label)} ${badge}</span>
+      <span class="msg-meta">${esc(m.timing)}・${esc(m.audience)}</span>
+    </button>
+    <label class="switch" onclick="event.stopPropagation()">
+      <input type="checkbox" ${m.on?'checked':''} onchange="toggleMsg('${esc(m.key)}', this)">
+      <span class="track"></span>
+    </label>
+  </div>`;
+}
+async function toggleMsg(key, input){
+  const on = input.checked;
+  const m = lineMsgs.find(x => x.key === key);
+  input.disabled = true;
+  try{
+    const res = await fetch('/api/admin/line-messages', {
+      method:'POST', headers:{ 'Content-Type':'application/json', ...adminHeaders() },
+      body: JSON.stringify({ key, on }),
+    });
+    const j = await res.json();
+    if(res.ok && j.ok){
+      if(m) m.on = on;
+      const row = $(`#msgrow-${key}`); if(row) row.classList.toggle('off', !on);
+      toast(`${m ? m.label : key}を${on?'オン':'オフ'}にしました`);
+    } else {
+      input.checked = !on; toast('変更できませんでした');
+    }
+  }catch(e){ input.checked = !on; toast('サーバーに接続できませんでした'); }
+  input.disabled = false;
+}
+
+// ---------- プレビューモーダル（LINE風バブル） ----------
+function openPreview(key){
+  const m = lineMsgs.find(x => x.key === key); if(!m) return;
+  $('#previewTitle').textContent = m.label;
+  $('#previewBody').innerHTML = previewHTML(m.preview);
+  $('#previewMask').classList.add('show');
+}
+function closePreview(){ $('#previewMask').classList.remove('show'); }
+function previewHTML(p){
+  if(!p) return '';
+  if(p.kind === 'text'){
+    return `<div class="bub">${esc(p.text)}</div>`;
+  }
+  // flex：ヘッダ色帯＋本文行（text / label:value）＋ボタン
+  const head = p.headerText
+    ? `<div class="fhead" style="background:${esc(p.headerColor||'#8C6B5A')}">${esc(p.headerText)}</div>` : '';
+  const lines = (p.lines||[]).map(l =>
+    ('value' in l)
+      ? `<div class="frow"><span class="fl">${esc(l.label)}</span><span class="fv">${esc(l.value)}</span></div>`
+      : `<div class="fline">${esc(l.text||'')}</div>`
+  ).join('');
+  const foot = (p.buttons||[]).length
+    ? `<div class="ffoot">${p.buttons.map(b=>`<div class="fbtn">${esc(b)}</div>`).join('')}</div>` : '';
+  return `<div class="fbub">${head}<div class="fbody">${lines}</div>${foot}</div>`;
 }
 
 // ---------- 今月のレポート ----------

@@ -565,6 +565,67 @@ section('E2E：サーバー一気通貫（モックLINE API使用・外部送信
     g2App.close();
   }
 
+  // ============ LINE自動配信 管理パネル（カタログ・トグル・プレビュー） ============
+  // GET /api/admin/line-messages：14件・各にpreview・freeフラグ・401ゲート
+  {
+    const lm = await (await fetch(base + '/api/admin/line-messages')).json();
+    ok(Array.isArray(lm.messages) && lm.messages.length === 14, 'line-messages：14件返る');
+    ok(lm.messages.every(m => m.preview && typeof m.preview.kind === 'string'), 'line-messages：各にpreviewがある');
+    const freeKeys = lm.messages.filter(m => m.free).map(m => m.key).sort().join(',');
+    ok(freeKeys === 'accept_reply,subscribe_reply,welcome', 'line-messages：freeフラグは welcome/subscribe_reply/accept_reply のみtrue');
+    ok(lm.messages.every(m => m.on === true), 'line-messages：既定は全on');
+    // flexToPreview：confirmのプレビューに headerText とサンプルの「¥9,900」相当が含まれる
+    const cm = lm.messages.find(m => m.key === 'confirm');
+    ok(cm.preview.kind === 'flex' && cm.preview.headerText.includes('ご予約確定'), 'flexToPreview：confirmのheaderText');
+    ok(JSON.stringify(cm.preview).includes('¥9,900'), 'flexToPreview：confirmプレビューに¥9,900');
+  }
+  // 別アプリ（ADMIN_TOKENあり）で401ゲートを検証
+  {
+    const lmGateCfg = await loadConfig({}, {
+      salonName: 's', accessToken: 'test-access-token', channelSecret: 'test-channel-secret',
+      ownerUserId: 'Uowner000000', adminToken: 'lm-tok', storage: 'fs', dataDir: path.join(TMP, 'lm-gate-data'),
+      lineApiBase: `http://127.0.0.1:${linePort}`, configDir: path.join(TMP, 'lm-gate-cfg'), passphrase: 'lm',
+    });
+    const lmGate = http.createServer(await createApp(lmGateCfg));
+    const lmPort = await listen(lmGate);
+    ok((await fetch(`http://127.0.0.1:${lmPort}/api/admin/line-messages`)).status === 401, 'line-messages：ADMIN_TOKENなしは401');
+    ok((await fetch(`http://127.0.0.1:${lmPort}/api/admin/line-messages`, { headers: { 'X-Admin-Token': 'lm-tok' } })).status === 200, 'line-messages：正しいトークンで200');
+    // POST：不正keyは400
+    ok((await fetch(`http://127.0.0.1:${lmPort}/api/admin/line-messages`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Token': 'lm-tok' }, body: JSON.stringify({ key: 'bogus', on: false }) })).status === 400, 'line-messages POST：不正keyは400');
+    lmGate.close();
+  }
+  // POST：confirmをoff → /confirm で確定Flexが送られない（pushが増えない）＋ログにスキップ／確定自体は成立
+  {
+    const cb = await (await post('/api/booking', { name: 'トグル 花子', line_user_id: 'Utoggle01', services: ['カット'], preferred_date: jstToday(9), preferred_time: '10:00' })).json();
+    // off
+    ok((await (await post('/api/admin/line-messages', { key: 'confirm', on: false })).json()).ok === true, 'line-messages POST：confirmをoffに保存');
+    const beforeOff = lineCalls.length;
+    const cOff = await (await post(`/api/bookings/${cb.id}/confirm`, { price: '¥3,300' })).json();
+    const pushedOff = lineCalls.slice(beforeOff).filter(c => c.path === '/v2/bot/message/push' && c.body.to === 'Utoggle01');
+    ok(pushedOff.length === 0 && cOff.pushed === false, 'トグルoff：確定Flexが送られない（push増えない・pushed:false）');
+    ok(cOff.booking.status === 'confirmed', 'トグルoff：確定自体は成立（status=confirmed）');
+    const logTxt = await fs.readFile(path.join(dataDir, 'ログ', `${jstToday()}.md`), 'utf8').catch(() => '');
+    ok(logTxt.includes('〔confirm〕はオフのため送信スキップ'), 'トグルoff：ログにスキップ記録');
+    // on に戻すと送られる
+    ok((await (await post('/api/admin/line-messages', { key: 'confirm', on: true })).json()).ok === true, 'line-messages POST：confirmをonに戻す');
+    const cb2 = await (await post('/api/booking', { name: 'トグル 太郎', line_user_id: 'Utoggle02', services: ['カット'], preferred_date: jstToday(9), preferred_time: '11:00' })).json();
+    const beforeOn = lineCalls.length;
+    const cOn = await (await post(`/api/bookings/${cb2.id}/confirm`, {})).json();
+    const pushedOn = lineCalls.slice(beforeOn).filter(c => c.path === '/v2/bot/message/push' && c.body.to === 'Utoggle02');
+    ok(pushedOn.length === 1 && cOn.pushed === true, 'トグルon復帰：確定Flexが再び送られる');
+  }
+  // welcomeをoff → follow webhook でreplyが飛ばない（reply増えない）が followはhandled
+  {
+    ok((await (await post('/api/admin/line-messages', { key: 'welcome', on: false })).json()).ok === true, 'line-messages POST：welcomeをoffに保存');
+    const beforeW = lineCalls.length;
+    const wOff = await signedPost({ events: [{ type: 'follow', replyToken: 'rtWoff', source: { userId: 'Ufolloff' } }] });
+    ok((await wOff.json()).handled[0] === 'follow', 'welcome off：follow自体はhandled');
+    const replies = lineCalls.slice(beforeW).filter(c => c.path === '/v2/bot/message/reply' && c.body.replyToken === 'rtWoff');
+    ok(replies.length === 0, 'welcome off：ウェルカムreplyが飛ばない');
+    // 後続テストに影響しないようonへ戻す
+    await post('/api/admin/line-messages', { key: 'welcome', on: true });
+  }
+
   app.close(); mockLine.close();
 }
 

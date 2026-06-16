@@ -16,6 +16,7 @@ import { isSorosoroDay } from './lib/visit-timing.mjs';
 import {
   createLineClient, buildConfirmFlex, buildReminderFlex, buildThankYouFlex, buildProposalFlex,
   sorosoroText, ownerBookingText, ownerHearingText, vacancyText, ownerTodayListText,
+  ownerAcceptedText, welcomeText, subscribeOnText,
 } from './lib/line-client.mjs';
 import { buildExportBundle, buildExportModel, assignCustomerNumbers } from './lib/drive-export.mjs';
 
@@ -124,6 +125,109 @@ function jstAddDays(ymd, days) {
   return d.toISOString().slice(0, 10);
 }
 
+// ---------------------------------------------------------------- メッセージ・プレビュー
+// Flexメッセージ（line-client.mjsの bubble() 構造）を管理画面用の「見た目」データに変換する。
+// altTextやJSONは出さず、ヘッダ色帯・本文行（text/label:value）・フッターボタンの配列だけを返す。
+function flexToPreview(flexMsg) {
+  const bubble = flexMsg?.contents || {};
+  const headerBox = bubble.header;
+  const headerTextNode = headerBox?.contents?.find(c => c.type === 'text');
+  const lines = [];
+  for (const c of (bubble.body?.contents || [])) {
+    if (c.type === 'text') {
+      lines.push({ text: c.text });
+    } else if (c.type === 'box') {
+      // baselineの行は label/value、それ以外（ネストbox）は内部のtextを拾って value 行にする
+      const texts = (c.contents || []).filter(x => x.type === 'text');
+      if (c.layout === 'baseline' && texts.length >= 2) {
+        lines.push({ label: texts[0].text, value: texts[1].text });
+      } else if (texts.length) {
+        for (const t of texts) lines.push({ text: t.text });
+      }
+    }
+  }
+  const buttons = (bubble.footer?.contents || [])
+    .filter(c => c.type === 'button')
+    .map(c => c.action?.label || '')
+    .filter(Boolean);
+  return {
+    kind: 'flex',
+    headerText: headerTextNode ? headerTextNode.text : '',
+    headerColor: headerBox ? (headerBox.backgroundColor || '') : '',
+    lines,
+    buttons,
+  };
+}
+// テキスト系メッセージのプレビュー（改行はそのまま保持してUI側で再現する）
+function textToPreview(text) {
+  return { kind: 'text', text: String(text ?? '') };
+}
+
+// LINE自動配信カタログ（全14種）。各 build(sample) は実ビルダーを呼びプレビュー用に変換した結果を返す。
+// config と baseUrl に依存するためファクトリ関数で都度生成する。
+function buildLineMessages(config, baseUrl) {
+  const salonName = config.salonName || 'Hair ravel';
+  const ownerName = config.ownerName || '中村';
+  const adminUrl = config.adminUrl || (baseUrl + '/admin');
+  // 共通サンプルデータ（仕様の固定値）
+  const sample = {
+    salonName, ownerName,
+    name: '田中 花子', line_display_name: '花子', phone: '090-1234-5678',
+    services: ['カット', 'カラー'],
+    preferred_date: '2026-07-01', confirmed_date: '2026-07-01', time: '14:00',
+    price: '¥9,900',
+    hearing_concerns: ['くせ毛・うねり', 'ダメージ'], hearing_style: 'ふんわりボブ',
+    proposed_date: '2026-07-03', proposed_time: '11:00',
+  };
+  // ビルダーに渡す予約風サンプル（テキスト系ビルダーが参照するキーをまとめて用意）
+  const sampleBooking = {
+    name: sample.name, line_display_name: sample.line_display_name, phone: sample.phone,
+    services: sample.services,
+    preferred_date: sample.preferred_date, preferred_time: sample.time,
+    confirmed_date: sample.confirmed_date, confirmed_time: sample.time,
+    hearing_concerns: sample.hearing_concerns, hearing_style: sample.hearing_style,
+    hearing_photo: '', notes: '',
+  };
+  // 月次レポートのサンプル（buildMonthlyReportは外部依存があるためここはサンプル固定値）
+  const monthlyReportSampleText = [
+    `📊 ${jstMonth()} ${salonName} 月次レポート`,
+    '👥友だち 128人（前月比 +12）',
+    '📨今月の配信 84/200通',
+    '🆕新規予約 9 ・✅確定 7 ・💈来店 6',
+  ].join('\n');
+
+  return [
+    { key: 'owner_new_booking', label: '新規予約の通知', timing: '予約が入った時', audience: 'オーナー', free: false,
+      build: () => textToPreview(ownerBookingText(sampleBooking, adminUrl)) },
+    { key: 'confirm', label: '予約確定カード', timing: '確定した時', audience: 'お客様', free: false,
+      build: () => flexToPreview(buildConfirmFlex({ salonName, date: sample.confirmed_date, time: sample.time, services: sample.services, price: sample.price })) },
+    { key: 'reminder', label: '前日リマインド＋ヒアリング', timing: '毎朝3時', audience: 'お客様', free: false,
+      build: () => flexToPreview(buildReminderFlex({ salonName, date: sample.confirmed_date, time: sample.time, services: sample.services, hearingUrl: baseUrl + '/hearing/sample' })) },
+    { key: 'owner_hearing', label: 'ヒアリング受信の通知', timing: 'ヒアリング送信時', audience: 'オーナー', free: false,
+      build: () => textToPreview(ownerHearingText(sampleBooking, adminUrl)) },
+    { key: 'thankyou', label: 'サンクス＋ホームケア', timing: '毎朝1時', audience: 'お客様', free: false,
+      build: () => flexToPreview(buildThankYouFlex({ salonName, name: sample.name, visitDate: sample.confirmed_date, services: sample.services, careUrl: config.careUrl, reviewUrl: config.reviewUrl })) },
+    { key: 'sorosoro', label: 'そろそろ再来店のご案内', timing: '次回目安-14日', audience: 'お客様', free: false,
+      build: () => textToPreview(sorosoroText({ name: sample.name, salonName, ownerName, services: sample.services })) },
+    { key: 'vacancy', label: '空き枠アラート', timing: '手動配信時', audience: '購読者', free: false,
+      build: () => textToPreview(vacancyText({ salonName, date: sample.confirmed_date, slots: ['14:00〜', '16:30〜'] })) },
+    { key: 'owner_today', label: '本日の一覧', timing: 'ボタンを押した時', audience: 'オーナー', free: false,
+      build: () => textToPreview(ownerTodayListText({ dateLabel: '7/1', bookings: [{ ...sampleBooking, status: 'confirmed', line_user_id: 'Usample', _customer: null, _lastCarte: null }] })) },
+    { key: 'proposal', label: '別日のご提案', timing: '別日提案時', audience: 'お客様', free: false,
+      build: () => flexToPreview(buildProposalFlex({ salonName, name: sample.name, origDate: sample.preferred_date, origTime: sample.time, date: sample.proposed_date, time: sample.proposed_time, bookingId: 'sample' })) },
+    { key: 'owner_response', label: '提案への応答通知', timing: 'お客様が応答時', audience: 'オーナー', free: false,
+      build: () => textToPreview(ownerAcceptedText({ name: sample.name, confirmed_date: sample.proposed_date, confirmed_time: sample.proposed_time, services: sample.services })) },
+    { key: 'monthly_report', label: '月次レポート', timing: '毎月1日', audience: 'オーナー', free: false,
+      build: () => textToPreview(monthlyReportSampleText) },
+    { key: 'welcome', label: '友だち追加あいさつ', timing: '友だち追加時', audience: 'お客様', free: true,
+      build: () => textToPreview(welcomeText({ salonName, bookingUrl: config.bookingUrl || (baseUrl + '/booking') })) },
+    { key: 'subscribe_reply', label: '空き枠通知の登録/解除返信', timing: '登録・解除時', audience: 'お客様', free: true,
+      build: () => textToPreview(subscribeOnText) },
+    { key: 'accept_reply', label: '予約承諾ボタンの返信', timing: 'お客様がOKを押した時', audience: 'お客様', free: true,
+      build: () => flexToPreview(buildConfirmFlex({ salonName, date: sample.proposed_date, time: sample.proposed_time, services: sample.services, price: sample.price })) },
+  ];
+}
+
 // オーナー通知（LINE_OWNER_USER_ID未設定/PLACEHOLDERならスキップ — 追補§7-4）
 // 送信は配信上限ガード（guardedPush）を通す。ガード未設定の経路では素のpushにフォールバック。
 async function notifyOwner(ctx, text) {
@@ -182,6 +286,21 @@ export async function createApp(config) {
       return { skipped: true };
     }
     return line.multicast(ids, messages);
+  }
+
+  // ---------- ON/OFFトグルの適用ヘルパー ----------
+  // 1リクエスト/cron内でトグルを1回だけ取得し、その結果でキーごとに送信可否を判定する。
+  // toggleAllows(toggles, key)：offなら false を返しスキップログを残す（既定on=true＝現行挙動）。
+  async function loadToggles() {
+    try { return await store.getLineToggles(); }
+    catch { return {}; } // 取得失敗時は全on扱い（送信を止めない）
+  }
+  async function toggleAllows(toggles, key) {
+    if (toggles && toggles[key] === false) {
+      await store.appendLog(`〔${key}〕はオフのため送信スキップ`);
+      return false;
+    }
+    return true;
   }
 
   // ---------- ライブ統計（配信量＋友だち数）。LINE未設定/取得失敗でも例外を投げず各値nullで返す ----------
@@ -268,6 +387,9 @@ export async function createApp(config) {
   // 送信は配信上限ガードを通すため guardedPush/guardedMulticast を ctx に載せる。
   const ctx = { config, store, line, guardedPush, guardedMulticast, quotaAllows };
   ctx.notifyOwner = text => notifyOwner(ctx, text);
+  // webhook側がトグルを参照するためのヘルパー（welcome/subscribe_reply/accept_reply の返信文だけを抑制する）
+  ctx.loadToggles = loadToggles;
+  ctx.toggleAllows = toggleAllows;
 
   // テキスト類（CSV/JSON/HTML）の即時再生成。失敗してもカルテ保存自体は成立させる。
   const reexport = async () => {
@@ -351,7 +473,10 @@ export async function createApp(config) {
         await store.appendLog(`予約受付 ${booking.name} ${booking.preferred_date} ${booking.preferred_time}`);
         let notified = false;
         try {
-          notified = await notifyOwner(ctx, ownerBookingText(booking, config.adminUrl || `${baseUrlOf(req, config)}/admin`));
+          const toggles = await loadToggles();
+          if (await toggleAllows(toggles, 'owner_new_booking')) {
+            notified = await notifyOwner(ctx, ownerBookingText(booking, config.adminUrl || `${baseUrlOf(req, config)}/admin`));
+          }
         } catch (e) { await store.appendLog(`オーナー通知失敗: ${e.message}`); }
         return json(res, 200, { ok: true, id: booking.id, notified, hearingUrl: `${baseUrlOf(req, config)}/hearing/${booking.id}` });
       }
@@ -371,7 +496,7 @@ export async function createApp(config) {
             price: d.price ?? before.price ?? '',
           });
           let pushed = false;
-          if (b.line_user_id) {
+          if (b.line_user_id && await toggleAllows(await loadToggles(), 'confirm')) {
             try {
               const r = await guardedPush(b.line_user_id, [buildConfirmFlex({
                 salonName: config.salonName, date: b.confirmed_date, time: b.confirmed_time,
@@ -398,7 +523,7 @@ export async function createApp(config) {
             status: 'proposed', proposed_date: d.date, proposed_time: d.time,
           });
           let pushed = false;
-          if (b.line_user_id) {
+          if (b.line_user_id && await toggleAllows(await loadToggles(), 'proposal')) {
             try {
               const r = await guardedPush(b.line_user_id, [buildProposalFlex({
                 salonName: config.salonName, name: b.name,
@@ -528,7 +653,9 @@ export async function createApp(config) {
           ...(photoPath ? { hearing_photo: photoPath } : {}),
         });
         try {
-          await notifyOwner(ctx, ownerHearingText(b, config.adminUrl || `${baseUrlOf(req, config)}/admin`));
+          if (await toggleAllows(await loadToggles(), 'owner_hearing')) {
+            await notifyOwner(ctx, ownerHearingText(b, config.adminUrl || `${baseUrlOf(req, config)}/admin`));
+          }
         } catch (e) { await store.appendLog(`ヒアリング通知失敗: ${e.message}`); }
         await store.appendLog(`ヒアリング回答 ${b.name}`);
         return json(res, 200, { ok: true });
@@ -555,6 +682,9 @@ export async function createApp(config) {
             : null;
         }
         const dateLabel = `${Number(today.slice(5, 7))}/${Number(today.slice(8, 10))}`;
+        if (!(await toggleAllows(await loadToggles(), 'owner_today'))) {
+          return json(res, 200, { ok: false, error: '本日の一覧の自動配信がオフになっています（設定で確認してください）' });
+        }
         try {
           const notified = await notifyOwner(ctx, ownerTodayListText({ dateLabel, bookings: targets }));
           if (!notified) return json(res, 200, { ok: false, error: 'オーナーのLINE User IDが未設定です（設定画面へ）' });
@@ -578,13 +708,39 @@ export async function createApp(config) {
         return json(res, 200, await buildMonthlyReport());
       }
 
+      // ---------- LINE自動配信カタログ（トグル状態＋プレビュー付き） ----------
+      if (method === 'GET' && p === '/api/admin/line-messages') {
+        if (!adminOk(req, config)) return json(res, 401, { error: 'unauthorized' });
+        const toggles = await loadToggles();
+        const catalog = buildLineMessages(config, baseUrlOf(req, config));
+        const messages = catalog.map(m => ({
+          key: m.key, label: m.label, timing: m.timing, audience: m.audience, free: m.free,
+          on: toggles[m.key] !== false, // 既定on=true
+          preview: m.build(),
+        }));
+        return json(res, 200, { messages });
+      }
+
+      // ---------- LINE自動配信トグルの保存（key単位） ----------
+      if (method === 'POST' && p === '/api/admin/line-messages') {
+        if (!adminOk(req, config)) return json(res, 401, { error: 'unauthorized' });
+        const d = body() || {};
+        const valid = new Set(buildLineMessages(config, baseUrlOf(req, config)).map(m => m.key));
+        if (!d.key || !valid.has(d.key)) return json(res, 400, { error: 'invalid key' });
+        await store.setLineToggle(d.key, !!d.on);
+        await store.appendLog(`LINE自動配信トグル変更 〔${d.key}〕→ ${d.on ? 'オン' : 'オフ'}`);
+        return json(res, 200, { ok: true });
+      }
+
       // ---------- 月次レポートをオーナーへ1通push（cron secret または 管理者） ----------
       if ((method === 'GET' || method === 'POST') && p === '/api/cron/monthly-report') {
         if (!(cronOk(req, config) || adminOk(req, config))) return json(res, 401, { error: 'unauthorized' });
         const report = await buildMonthlyReport();
         let notified = false;
         try {
-          notified = await notifyOwner(ctx, monthlyReportText(report));
+          if (await toggleAllows(await loadToggles(), 'monthly_report')) {
+            notified = await notifyOwner(ctx, monthlyReportText(report));
+          }
         } catch (e) { await store.appendLog(`月次レポート通知失敗: ${e.message}`); }
         await store.appendLog(`月次レポートをオーナーへ送信（${report.month}）`);
         return json(res, 200, { ok: true, notified, report });
@@ -594,6 +750,9 @@ export async function createApp(config) {
       if (method === 'POST' && p === '/api/vacancy-alert') {
         if (!(cronOk(req, config) || adminOk(req, config))) return json(res, 401, { error: 'unauthorized' });
         const d = body() || {};
+        if (!(await toggleAllows(await loadToggles(), 'vacancy'))) {
+          return json(res, 200, { ok: true, sent: 0, skipped: true });
+        }
         const ids = await store.activeSubscriberIds();
         if (!ids.length) return json(res, 200, { ok: true, sent: 0 });
         const mr = await guardedMulticast(ids, [{
@@ -612,7 +771,8 @@ export async function createApp(config) {
         const targets = (await store.listBookings())
           .filter(b => b.status === 'confirmed' && b.confirmed_date === tomorrow && b.line_user_id);
         let sent = 0;
-        for (const b of targets) {
+        const reminderOn = await toggleAllows(await loadToggles(), 'reminder');
+        for (const b of (reminderOn ? targets : [])) {
           try {
             const r = await guardedPush(b.line_user_id, [buildReminderFlex({
               salonName: config.salonName, date: b.confirmed_date, time: b.confirmed_time,
@@ -631,16 +791,22 @@ export async function createApp(config) {
         const yesterday = jstToday(-1);
         const today = jstToday();
         const all = (await store.listBookings()).filter(b => b.status === 'confirmed' && b.line_user_id);
+        // トグルはcron内で1回だけ取得（thankyou/sorosoro/monthly_reportで共用）
+        const toggles = await loadToggles();
+        const thankyouOn = await toggleAllows(toggles, 'thankyou');
+        const sorosoroOn = await toggleAllows(toggles, 'sorosoro');
         let thanks = 0, sorosoro = 0;
         for (const b of all) {
           try {
             if (b.confirmed_date === yesterday) {
+              if (!thankyouOn) continue;
               const r = await guardedPush(b.line_user_id, [buildThankYouFlex({
                 salonName: config.salonName, name: b.name, visitDate: b.confirmed_date,
                 services: b.services, careUrl: config.careUrl, reviewUrl: config.reviewUrl,
               })], 'サンクスLINE');
               if (!(r && r.skipped)) thanks++;
             } else if (isSorosoroDay(b.confirmed_date, b.services, today)) {
+              if (!sorosoroOn) continue;
               const r = await guardedPush(b.line_user_id, [{
                 type: 'text',
                 text: sorosoroText({ name: b.name, salonName: config.salonName, ownerName: config.ownerName, services: b.services }),
@@ -653,7 +819,7 @@ export async function createApp(config) {
         // 月初(JST 1日)はこの日次cronの中で月次レポートもオーナーへ1通送る
         // （Hobbyプランのcron本数制限を避けるため専用cronは作らない）
         let monthlyReportSent = false;
-        if (today.slice(8, 10) === '01') {
+        if (today.slice(8, 10) === '01' && await toggleAllows(toggles, 'monthly_report')) {
           try {
             monthlyReportSent = await notifyOwner(ctx, monthlyReportText(await buildMonthlyReport()));
             await store.appendLog('月次レポートをオーナーへ送信');
