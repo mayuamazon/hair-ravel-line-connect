@@ -1019,6 +1019,211 @@ section('フェーズ2：予約フォームからのスタッフ選択（POST /a
   f2App.close();
 }
 
+// ================================================================ 11. フェーズ3：スタッフへの直接通知
+section('フェーズ3A：staffUserIds の設定と loadConfig');
+{
+  // ① LINE_NAKAMURA_USER_ID / LINE_MATSUYOSHI_USER_ID が config.staffUserIds に入る
+  const cfg = await loadConfig({
+    LINE_CHANNEL_ACCESS_TOKEN: 'tok_test',
+    LINE_OWNER_USER_ID: 'Uowner001',
+    LINE_NAKAMURA_USER_ID: 'Unakamura001',
+    LINE_MATSUYOSHI_USER_ID: 'Umatsuyoshi001',
+  }, { configDir: path.join(TMP, 'ph3-cfg'), passphrase: 'p3' });
+  ok(cfg.staffUserIds && cfg.staffUserIds.nakamura === 'Unakamura001', 'loadConfig: staffUserIds.nakamura が正しく設定される');
+  ok(cfg.staffUserIds && cfg.staffUserIds.matsuyoshi === 'Umatsuyoshi001', 'loadConfig: staffUserIds.matsuyoshi が正しく設定される');
+  ok(cfg.ownerUserId === 'Uowner001', 'loadConfig: ownerUserId（既存）は変更されない');
+
+  // ② LINE_MATSUYOSHI_USER_ID 未設定でも staffUserIds.matsuyoshi === '' になる（エラーにならない）
+  const cfg2 = await loadConfig({
+    LINE_OWNER_USER_ID: 'Uowner001',
+    LINE_NAKAMURA_USER_ID: 'Unakamura001',
+  }, { configDir: path.join(TMP, 'ph3-cfg2'), passphrase: 'p3b' });
+  ok(cfg2.staffUserIds && cfg2.staffUserIds.nakamura === 'Unakamura001', 'loadConfig: 松吉ID未設定でも nakamura は取得できる');
+  ok(cfg2.staffUserIds && (cfg2.staffUserIds.matsuyoshi === '' || cfg2.staffUserIds.matsuyoshi === undefined), 'loadConfig: 松吉ID未設定でも staffUserIds.matsuyoshi は空（エラーなし）');
+
+  // ③ 両方未設定でも staffUserIds が存在する（エラーにならない）
+  const cfg3 = await loadConfig({
+    LINE_OWNER_USER_ID: 'Uowner001',
+  }, { configDir: path.join(TMP, 'ph3-cfg3'), passphrase: 'p3c' });
+  ok(cfg3.staffUserIds && typeof cfg3.staffUserIds === 'object', 'loadConfig: 両方未設定でも staffUserIds オブジェクトが存在する');
+}
+
+section('フェーズ3B：ownerBookingText に指名行が含まれる');
+{
+  // ① nakamura 指名の場合
+  const textNakamura = ownerBookingText(
+    { name: '田中 花子', services: ['カット'], preferred_date: '2026-07-01', preferred_time: '14:00', staff: 'nakamura' },
+    'https://example.com/admin'
+  );
+  ok(textNakamura.includes('中村'), 'ownerBookingText：nakamura → 中村 が含まれる');
+  ok(textNakamura.includes('ご指名'), 'ownerBookingText：「ご指名」の行が含まれる');
+
+  // ② matsuyoshi 指名の場合
+  const textMatsuyoshi = ownerBookingText(
+    { name: '鈴木 太郎', services: ['カラー'], preferred_date: '2026-07-02', preferred_time: '11:00', staff: 'matsuyoshi' },
+    'https://example.com/admin'
+  );
+  ok(textMatsuyoshi.includes('松吉'), 'ownerBookingText：matsuyoshi → 松吉 が含まれる');
+
+  // ③ 指名なし（staff: ''）の場合
+  const textNoStaff = ownerBookingText(
+    { name: '山田 次郎', services: ['カット'], preferred_date: '2026-07-03', preferred_time: '10:00', staff: '' },
+    'https://example.com/admin'
+  );
+  ok(textNoStaff.includes('指名なし'), 'ownerBookingText：staff空 → 指名なし が含まれる');
+
+  // ④ staff フィールド自体がない場合（後方互換）
+  const textLegacy = ownerBookingText(
+    { name: '古い 予約', services: ['カット'], preferred_date: '2026-07-04', preferred_time: '09:00' },
+    'https://example.com/admin'
+  );
+  // staff なし旧データはエラーにならない（指名なし or 省略どちらでもOK）
+  ok(typeof textLegacy === 'string' && textLegacy.length > 0, 'ownerBookingText：staff フィールドなし旧データでエラーにならない');
+}
+
+section('フェーズ3C：ownerTodayListText に担当者名が含まれる');
+{
+  const bookings = [
+    { confirmed_time: '11:00', name: '田中 花子', services: ['カット'], status: 'confirmed', line_user_id: 'U1', staff: 'nakamura', _customer: null, _lastCarte: null },
+    { confirmed_time: '13:00', name: '鈴木 太郎', services: ['カラー'], status: 'confirmed', line_user_id: '', staff: 'matsuyoshi', _customer: null, _lastCarte: null },
+    { confirmed_time: '15:00', name: '山田 次郎', services: ['トリートメント'], status: 'confirmed', line_user_id: '', staff: '', _customer: null, _lastCarte: null },
+  ];
+  const text = ownerTodayListText({ dateLabel: '7/1', bookings });
+  ok(text.includes('【中村】'), 'ownerTodayListText：nakamura → 【中村】が含まれる');
+  ok(text.includes('【松吉】'), 'ownerTodayListText：matsuyoshi → 【松吉】が含まれる');
+  // 指名なしは「【指名なし】」か表示なしかどちらでもよいが、エラーにならない
+  ok(typeof text === 'string' && text.includes('山田 次郎'), 'ownerTodayListText：指名なしでエラーにならない（山田 次郎が含まれる）');
+}
+
+section('フェーズ3D：notifyStaff と notify-today のE2Eテスト');
+{
+  // E2E共通セットアップ（LINE API はモック）
+  const pushLog = [];
+  const mockFetch = async (url, opts) => {
+    if (url.includes('/v2/bot/message/push')) {
+      const b = JSON.parse(opts.body);
+      pushLog.push({ to: b.to, text: b.messages?.[0]?.text });
+      return { ok: true, json: async () => ({}) };
+    }
+    if (url.includes('/v2/bot/message/quota')) return { ok: true, json: async () => ({ type: 'none' }) };
+    if (url.includes('/v2/bot/message/quota/consumption')) return { ok: true, json: async () => ({ totalUsage: 5 }) };
+    return { ok: true, json: async () => ({}) };
+  };
+
+  const p3Dir = path.join(TMP, 'ph3-e2e');
+  const p3Cfg = await loadConfig({
+    LINE_CHANNEL_ACCESS_TOKEN: 'tok_test',
+    LINE_OWNER_USER_ID: 'Uowner001',
+    LINE_NAKAMURA_USER_ID: 'Unakamura001',
+    LINE_MATSUYOSHI_USER_ID: 'Umatsuyoshi001',
+  }, {
+    salonName: 'フェーズ3テスト', storage: 'fs', dataDir: p3Dir,
+    adminToken: '', configDir: path.join(TMP, 'ph3-e2e-cfg'), passphrase: 'ph3',
+    fetchImpl: mockFetch,
+  });
+  const p3App = http.createServer(await createApp(p3Cfg));
+  const p3Port = await listen(p3App);
+  const p3Base = `http://127.0.0.1:${p3Port}`;
+  const p3Post = (pp, bd) => fetch(p3Base + pp, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(bd) });
+
+  // ① nakamura 指名 → nakamura の ID へ送信される
+  pushLog.length = 0;
+  const nakBooking = await p3Post('/api/booking', {
+    name: '中村指名 花子', preferred_date: '2026-09-01', preferred_time: '11:00',
+    services: ['カット'], staff: 'nakamura',
+  });
+  const nakJ = await nakBooking.json();
+  ok(nakJ.ok, 'notifyStaff：nakamura指名で予約作成成功');
+  ok(pushLog.some(l => l.to === 'Unakamura001'), 'notifyStaff：nakamura指名 → Unakamura001 へ送信');
+
+  // ② matsuyoshi 指名 → matsuyoshi の ID へ送信される
+  pushLog.length = 0;
+  const matBooking = await p3Post('/api/booking', {
+    name: '松吉指名 太郎', preferred_date: '2026-09-02', preferred_time: '13:00',
+    services: ['カラー'], staff: 'matsuyoshi',
+  });
+  const matJ = await matBooking.json();
+  ok(matJ.ok, 'notifyStaff：matsuyoshi指名で予約作成成功');
+  ok(pushLog.some(l => l.to === 'Umatsuyoshi001'), 'notifyStaff：matsuyoshi指名 → Umatsuyoshi001 へ送信');
+
+  // ③ 指名なし（staff: ''）→ ownerUserId（Uowner001）へフォールバック
+  pushLog.length = 0;
+  const noStaffBooking = await p3Post('/api/booking', {
+    name: '指名なし 次郎', preferred_date: '2026-09-03', preferred_time: '15:00',
+    services: ['トリートメント'], staff: '',
+  });
+  const noStaffJ = await noStaffBooking.json();
+  ok(noStaffJ.ok, 'notifyStaff：指名なしで予約作成成功');
+  ok(pushLog.some(l => l.to === 'Uowner001'), 'notifyStaff：指名なし → ownerUserId（Uowner001）へフォールバック');
+
+  // ④ notify-today：中村・松吉の両IDへ送信される（重複なし）
+  // まず今日の予約を作成してconfirmする
+  const today = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const todayBk = await p3Post('/api/booking', {
+    name: '本日 一覧テスト', preferred_date: today, preferred_time: '10:00',
+    services: ['カット'], staff: 'nakamura',
+  });
+  const todayBkJ = await todayBk.json();
+  await p3Post(`/api/bookings/${todayBkJ.id}/confirm`, { confirmed_date: today, confirmed_time: '10:00' });
+  pushLog.length = 0;
+  const notifyTodayR = await p3Post('/api/admin/notify-today', {});
+  const notifyTodayJ = await notifyTodayR.json();
+  ok(notifyTodayJ.ok, 'notify-today：両スタッフID設定時にok:true');
+  const sentIds = pushLog.map(l => l.to);
+  ok(sentIds.includes('Unakamura001'), 'notify-today：Unakamura001 へ送信される');
+  ok(sentIds.includes('Umatsuyoshi001'), 'notify-today：Umatsuyoshi001 へ送信される');
+  ok(new Set(sentIds).size === sentIds.length, 'notify-today：重複送信なし（ユニーク化）');
+  // ownerUserIdと中村が同じ場合は重複しない（ここでは別IDなので送信件数は2件）
+  ok(sentIds.length === 2, 'notify-today：送信先は2件（中村+松吉）');
+
+  p3App.close();
+
+  // ⑤ 松吉ID未設定の場合：notify-today は中村 + ownerUserId のみ（重複なし）
+  const pushLog5 = [];
+  const mockFetch5 = async (url, opts) => {
+    if (url.includes('/v2/bot/message/push')) {
+      const b = JSON.parse(opts.body);
+      pushLog5.push({ to: b.to });
+      return { ok: true, json: async () => ({}) };
+    }
+    if (url.includes('/v2/bot/message/quota')) return { ok: true, json: async () => ({ type: 'none' }) };
+    if (url.includes('/v2/bot/message/quota/consumption')) return { ok: true, json: async () => ({ totalUsage: 5 }) };
+    return { ok: true, json: async () => ({}) };
+  };
+  const p3bDir = path.join(TMP, 'ph3-b');
+  const p3bCfg = await loadConfig({
+    LINE_CHANNEL_ACCESS_TOKEN: 'tok_test2',
+    LINE_OWNER_USER_ID: 'Uowner002',
+    LINE_NAKAMURA_USER_ID: 'Unakamura002',
+    // matsuyoshi は未設定
+  }, {
+    salonName: '松吉未設定テスト', storage: 'fs', dataDir: p3bDir,
+    adminToken: '', configDir: path.join(TMP, 'ph3-b-cfg'), passphrase: 'ph3b',
+    fetchImpl: mockFetch5,
+  });
+  const p3bApp = http.createServer(await createApp(p3bCfg));
+  const p3bPort = await listen(p3bApp);
+  const p3bBase = `http://127.0.0.1:${p3bPort}`;
+  const p3bPost = (pp, bd) => fetch(p3bBase + pp, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(bd) });
+
+  // 今日の予約を作成
+  const todayB = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const bkB = await (await p3bPost('/api/booking', { name: '松吉未設定 テスト', preferred_date: todayB, preferred_time: '09:00', services: ['カット'] })).json();
+  await p3bPost(`/api/bookings/${bkB.id}/confirm`, { confirmed_date: todayB, confirmed_time: '09:00' });
+  pushLog5.length = 0;
+  const todayRb = await p3bPost('/api/admin/notify-today', {});
+  const todayJb = await todayRb.json();
+  ok(todayJb.ok, '松吉ID未設定: notify-today は ok:true（エラーにならない）');
+  const sentIds5 = pushLog5.map(l => l.to);
+  // nakamura IDが設定済みなので Unakamura002 へは送る。matsuyoshi未設定なので Uowner002 は松吉の代わりには送らない
+  // （ownerIdとnakamuraIdが別の場合、未設定の松吉分はスキップ）
+  ok(sentIds5.includes('Unakamura002'), '松吉ID未設定: nakamura(Unakamura002) へは送信される');
+  ok(!sentIds5.includes(undefined) && !sentIds5.includes(''), '松吉ID未設定: 空/undefined への送信はない');
+  ok(new Set(sentIds5).size === sentIds5.length, '松吉ID未設定: 重複送信なし');
+
+  p3bApp.close();
+}
+
 // ================================================================ 結果
 console.log('\n' + '═'.repeat(46));
 console.log(`結果: ${pass} 成功 / ${fail} 失敗`);

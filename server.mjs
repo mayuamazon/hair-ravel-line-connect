@@ -39,6 +39,11 @@ export async function loadConfig(env = process.env, overrides = {}) {
     ...loaded,
     ...overrides,
   };
+  // スタッフ個人のLINE User ID を staffUserIds にまとめる
+  config.staffUserIds = {
+    nakamura: config.nakamuraUserId || '',
+    matsuyoshi: config.matsuyoshiUserId || '',
+  };
   config._secretStore = secretStore;
   return config;
 }
@@ -246,6 +251,33 @@ async function notifyOwner(ctx, text) {
   }
   const send = guardedPush || ((to, msgs) => line.push(to, msgs));
   await send(id, [{ type: 'text', text }], 'オーナー通知');
+  return true;
+}
+
+// スタッフ個人への通知（フェーズ3）
+// staffKey に対応する staffUserIds[staffKey] があればそこへ送信。
+// 無い／空／staffKey が ''（指名なし）／PLACEHOLDERの場合は ownerUserId へフォールバック。
+// 既存の notifyOwner 定義・呼び出し箇所は一切変更しない。
+async function notifyStaff(ctx, text, staffKey) {
+  const { config, line, store, guardedPush } = ctx;
+  const send = guardedPush || ((to, msgs) => line.push(to, msgs));
+
+  // staffKey が有効で対応するIDが設定されているか判定
+  const staffId = (staffKey && config.staffUserIds && config.staffUserIds[staffKey]) || '';
+  const staffIdValid = staffId && !staffId.includes('PLACEHOLDER');
+
+  if (staffIdValid) {
+    await send(staffId, [{ type: 'text', text }], `スタッフ通知（${staffKey}）`);
+    return true;
+  }
+
+  // フォールバック：ownerUserId へ
+  const ownerId = config.ownerUserId || '';
+  if (!ownerId || ownerId.includes('PLACEHOLDER')) {
+    await store.appendLog('スタッフ通知スキップ（staffId未設定かつLINE_OWNER_USER_ID未設定）');
+    return false;
+  }
+  await send(ownerId, [{ type: 'text', text }], 'スタッフ通知（ownerフォールバック）');
   return true;
 }
 
@@ -482,7 +514,8 @@ export async function createApp(config) {
         try {
           const toggles = await loadToggles();
           if (await toggleAllows(toggles, 'owner_new_booking')) {
-            notified = await notifyOwner(ctx, ownerBookingText(booking, config.adminUrl || `${baseUrlOf(req, config)}/admin`));
+            // 新規予約通知：担当スタッフ本人へ（未設定/指名なしは ownerUserId へフォールバック）
+            notified = await notifyStaff(ctx, ownerBookingText(booking, config.adminUrl || `${baseUrlOf(req, config)}/admin`), booking.staff || '');
           }
         } catch (e) { await store.appendLog(`オーナー通知失敗: ${e.message}`); }
         return json(res, 200, { ok: true, id: booking.id, notified, hearingUrl: `${baseUrlOf(req, config)}/hearing/${booking.id}` });
@@ -711,9 +744,36 @@ export async function createApp(config) {
           return json(res, 200, { ok: false, error: '本日の一覧の自動配信がオフになっています（設定で確認してください）' });
         }
         try {
-          const notified = await notifyOwner(ctx, ownerTodayListText({ dateLabel, bookings: targets, today }));
-          if (!notified) return json(res, 200, { ok: false, error: 'オーナーのLINE User IDが未設定です（設定画面へ）' });
-          await store.appendLog(`本日一覧をオーナーへLINE通知（${targets.length}件）`);
+          const todayText = ownerTodayListText({ dateLabel, bookings: targets, today });
+          const send = guardedPush || ((to, msgs) => line.push(to, msgs));
+
+          // 送信先IDを収集（中村・松吉の両方。設定があるIDのみ。重複はユニーク化）
+          const staffUserIds = config.staffUserIds || {};
+          const candidateIds = [
+            staffUserIds.nakamura,
+            staffUserIds.matsuyoshi,
+          ].filter(id => id && !id.includes('PLACEHOLDER'));
+
+          // スタッフIDが1件も設定されていない場合は従来どおり ownerUserId の1件のみ
+          const ownerFallback = config.ownerUserId || '';
+          let recipientIds;
+          if (candidateIds.length > 0) {
+            // ユニーク化（ownerUserIdと中村IDが同一の場合でも重複しない）
+            recipientIds = [...new Set(candidateIds)];
+          } else if (ownerFallback && !ownerFallback.includes('PLACEHOLDER')) {
+            recipientIds = [ownerFallback];
+          } else {
+            recipientIds = [];
+          }
+
+          if (recipientIds.length === 0) {
+            return json(res, 200, { ok: false, error: 'オーナーのLINE User IDが未設定です（設定画面へ）' });
+          }
+
+          for (const id of recipientIds) {
+            await send(id, [{ type: 'text', text: todayText }], '本日一覧通知');
+          }
+          await store.appendLog(`本日一覧をLINE通知（${targets.length}件・送信先${recipientIds.length}名）`);
           return json(res, 200, { ok: true, count: targets.length });
         } catch (e) {
           await store.appendLog(`本日一覧通知失敗: ${e.message}`);
