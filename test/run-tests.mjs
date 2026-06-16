@@ -224,6 +224,79 @@ section('Flexメッセージ & 文面');
   ok(pfs.includes('2026-07-03') && pfs.includes('あいにく'), '提案Flexに提案日時と本文');
   ok(ownerAcceptedText({ name: '田中', confirmed_date: '2026-07-03', confirmed_time: '15:00', services: ['カット'] }).includes('承諾しました'), 'オーナー承諾通知文面');
   ok(ownerRepickText({ name: '田中' }, 'http://x/booking').includes('合わない'), 'オーナー選び直し通知文面');
+
+  // ---------- タスク1：サンクスFlex「使ったアイテム」拡張 ----------
+  // products あり + careUrl あり → 「使ったアイテムを見る」ボタン + 本日のアイテム行
+  const tfP = buildThankYouFlex({ salonName: 'Hair ravel', name: '鈴木', services: ['カラー'],
+    careUrl: 'https://salon.example/care', products: ['オージュア クエンチ', 'N. ポリッシュオイル'] });
+  const tfPs = JSON.stringify(tfP);
+  ok(tfPs.includes('使ったアイテムを見る'), 'サンクスFlex(products+careUrl)：「使ったアイテムを見る」ボタンが出る');
+  ok(tfPs.includes('https://salon.example/care'), 'サンクスFlex(products)：careUrlに飛ぶ');
+  ok(tfPs.includes('本日のアイテム'), 'サンクスFlex(products)：「本日のアイテム」行が出る');
+  ok(tfPs.includes('オージュア クエンチ'), 'サンクスFlex(products)：商品名が本文に含まれる');
+  ok(!tfPs.includes('ホームケアの詳しい使い方'), 'サンクスFlex(products+careUrl)：旧ボタン文言は出ない');
+  // products なし + careUrl あり → 旧ボタン「ホームケアの詳しい使い方」
+  const tfNP = buildThankYouFlex({ salonName: 'Hair ravel', name: '鈴木', services: ['カラー'],
+    careUrl: 'https://salon.example/care' });
+  const tfNPs = JSON.stringify(tfNP);
+  ok(tfNPs.includes('ホームケアの詳しい使い方'), 'サンクスFlex(products無し)：旧ボタン文言が出る');
+  ok(!tfNPs.includes('使ったアイテムを見る'), 'サンクスFlex(products無し)：「使ったアイテムを見る」は出ない');
+  ok(!tfNPs.includes('本日のアイテム'), 'サンクスFlex(products無し)：アイテム行は出ない');
+  // products あり + careUrl なし → ボタン不要、アイテム行のみ
+  const tfPC = buildThankYouFlex({ salonName: 'Hair ravel', name: '鈴木', services: ['カラー'],
+    products: ['エルジューダ MO'] });
+  const tfPCs = JSON.stringify(tfPC);
+  ok(tfPCs.includes('本日のアイテム') && tfPCs.includes('エルジューダ MO'), 'サンクスFlex(products+careUrl無し)：アイテム行は出る');
+  ok(!tfPCs.includes('使ったアイテムを見る'), 'サンクスFlex(products+careUrl無し)：careUrlなしはボタンなし');
+
+  // ---------- タスク2：ownerTodayListText 誕生日±3日強調 + 秘書文体 ----------
+  // ① 誕生日当日 → 「🎂★ M/D お誕生日が近いです（本日！）」
+  const todayBase = '2026-06-13';
+  const txtBirth0 = ownerTodayListText({
+    dateLabel: '6/13', today: todayBase,
+    bookings: [{ name: '誕生日 花子', confirmed_time: '11:00', services: ['カット'], status: 'confirmed', line_user_id: 'Ux',
+      _customer: { id: 'cB', birthday: '1990-06-13' }, _lastCarte: null }],
+  });
+  ok(txtBirth0.includes('🎂★') && txtBirth0.includes('本日！'), '誕生日当日：★強調＋本日！');
+  // ② 2日後 → 「🎂★ M/D お誕生日が近いです（2日後）」
+  const txtBirth2 = ownerTodayListText({
+    dateLabel: '6/13', today: todayBase,
+    bookings: [{ name: '誕生日 花子', confirmed_time: '11:00', services: ['カット'], status: 'confirmed', line_user_id: 'Ux',
+      _customer: { id: 'cB', birthday: '1990-06-15' }, _lastCarte: null }],
+  });
+  ok(txtBirth2.includes('🎂★') && txtBirth2.includes('2日後'), '誕生日2日後：★強調＋2日後');
+  // ③ 1日前 → 「🎂★ M/D お誕生日が近いです（1日前）」
+  const txtBirthM1 = ownerTodayListText({
+    dateLabel: '6/13', today: todayBase,
+    bookings: [{ name: '誕生日 花子', confirmed_time: '11:00', services: ['カット'], status: 'confirmed', line_user_id: 'Ux',
+      _customer: { id: 'cB', birthday: '1990-06-12' }, _lastCarte: null }],
+  });
+  ok(txtBirthM1.includes('🎂★') && txtBirthM1.includes('1日前'), '誕生日1日前：★強調＋1日前');
+  // ④ 4日後 → ★なし（通常の「今月！」判定）
+  const txtBirth4 = ownerTodayListText({
+    dateLabel: '6/13', today: todayBase,
+    bookings: [{ name: '誕生日 花子', confirmed_time: '11:00', services: ['カット'], status: 'confirmed', line_user_id: 'Ux',
+      _customer: { id: 'cB', birthday: '1990-06-17' }, _lastCarte: null }],
+  });
+  ok(!txtBirth4.includes('🎂★'), '誕生日4日後：★強調なし');
+  ok(txtBirth4.includes('（今月！）'), '誕生日4日後・今月：（今月！）は出る');
+  // ⑤ 年またぎ（today=12/30, birthday=1/2 → 3日後）
+  const txtBirthXY = ownerTodayListText({
+    dateLabel: '12/30', today: '2026-12-30',
+    bookings: [{ name: '正月 太郎', confirmed_time: '10:00', services: ['カット'], status: 'confirmed', line_user_id: 'Ux',
+      _customer: { id: 'cC', birthday: '1985-01-02' }, _lastCarte: null }],
+  });
+  ok(txtBirthXY.includes('🎂★') && txtBirthXY.includes('3日後'), '年またぎ誕生日（12/30→1/2）：★強調＋3日後');
+  // ⑥ 秘書文体：冒頭に「おはようございます」と件数が出る
+  const txtGreet = ownerTodayListText({
+    dateLabel: '6/13', today: todayBase,
+    bookings: [{ name: 'テスト 花子', confirmed_time: '14:00', services: ['カット'], status: 'confirmed', line_user_id: 'Ux',
+      _customer: null, _lastCarte: null }],
+  });
+  ok(txtGreet.includes('おはようございます') && txtGreet.includes('1件'), '秘書文体：冒頭の挨拶と件数');
+  // ⑦ 予約なしの場合も「おはようございます」
+  const txtEmpty = ownerTodayListText({ dateLabel: '6/13', today: todayBase, bookings: [] });
+  ok(txtEmpty.includes('おはようございます') && txtEmpty.includes('ございません'), '予約なし：おはようございます');
 }
 
 // ================================================================ 6. Webhook署名検証

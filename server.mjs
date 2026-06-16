@@ -686,7 +686,7 @@ export async function createApp(config) {
           return json(res, 200, { ok: false, error: '本日の一覧の自動配信がオフになっています（設定で確認してください）' });
         }
         try {
-          const notified = await notifyOwner(ctx, ownerTodayListText({ dateLabel, bookings: targets }));
+          const notified = await notifyOwner(ctx, ownerTodayListText({ dateLabel, bookings: targets, today }));
           if (!notified) return json(res, 200, { ok: false, error: 'オーナーのLINE User IDが未設定です（設定画面へ）' });
           await store.appendLog(`本日一覧をオーナーへLINE通知（${targets.length}件）`);
           return json(res, 200, { ok: true, count: targets.length });
@@ -795,14 +795,25 @@ export async function createApp(config) {
         const toggles = await loadToggles();
         const thankyouOn = await toggleAllows(toggles, 'thankyou');
         const sorosoroOn = await toggleAllows(toggles, 'sorosoro');
+        // サンクスLINEでカルテのproductsを参照するため顧客・カルテ一覧を先取り
+        const thankyouCustomers = thankyouOn ? await store.listCustomers() : [];
+        const thankyouCartes = thankyouOn ? await store.listCartes() : [];
         let thanks = 0, sorosoro = 0;
         for (const b of all) {
           try {
             if (b.confirmed_date === yesterday) {
               if (!thankyouOn) continue;
+              // 昨日来店に対応するカルテを探し、productsを取得
+              const cust = matchCustomerFor(b, thankyouCustomers);
+              const karte = cust
+                ? thankyouCartes.find(k => k.customer_id === cust.id && k.date === yesterday)
+                : null;
+              const products = (karte && Array.isArray(karte.products) && karte.products.length)
+                ? karte.products : undefined;
               const r = await guardedPush(b.line_user_id, [buildThankYouFlex({
                 salonName: config.salonName, name: b.name, visitDate: b.confirmed_date,
                 services: b.services, careUrl: config.careUrl, reviewUrl: config.reviewUrl,
+                products,
               })], 'サンクスLINE');
               if (!(r && r.skipped)) thanks++;
             } else if (isSorosoroDay(b.confirmed_date, b.services, today)) {
