@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { createBackend } from './lib/store-backends.mjs';
 import { createMarkdownStore, jstToday } from './lib/markdown-store.mjs';
 import { createSecretStore } from './lib/secret-store.mjs';
+import { VALID_STAFF_KEYS } from './lib/staff.mjs';
 import { verifySignature, handleEvents } from './lib/webhook-handler.mjs';
 import { isSorosoroDay } from './lib/visit-timing.mjs';
 import {
@@ -43,6 +44,12 @@ export async function loadConfig(env = process.env, overrides = {}) {
 }
 
 // ---------------------------------------------------------------- 補助
+// staff フィールドの正規化（nakamura/matsuyoshi/'' のみ許可、それ以外は '' に正規化）
+const normalizeStaff = v => {
+  const s = String(v ?? '');
+  return VALID_STAFF_KEYS.has(s) ? s : '';
+};
+
 const safeEq = (a, b) => {
   const A = Buffer.from(String(a)), B = Buffer.from(String(b));
   return A.length === B.length && crypto.timingSafeEqual(A, B);
@@ -489,11 +496,13 @@ export async function createApp(config) {
           const d = body() || {};
           const before = await store.getBooking(m[1]);
           if (!before) return json(res, 404, { error: 'booking not found' });
+          const staffPatch = d.staff !== undefined ? { staff: normalizeStaff(d.staff) } : {};
           const b = await store.updateBooking(m[1], {
             status: 'confirmed',
             confirmed_date: d.confirmed_date || before.preferred_date,
             confirmed_time: d.confirmed_time || before.preferred_time,
             price: d.price ?? before.price ?? '',
+            ...staffPatch,
           });
           let pushed = false;
           if (b.line_user_id && await toggleAllows(await loadToggles(), 'confirm')) {
@@ -519,8 +528,10 @@ export async function createApp(config) {
           if (!d.date || !d.time) return json(res, 400, { error: 'date と time は必須です' });
           const before = await store.getBooking(m[1]);
           if (!before) return json(res, 404, { error: 'booking not found' });
+          const proposeStaffPatch = d.staff !== undefined ? { staff: normalizeStaff(d.staff) } : {};
           const b = await store.updateBooking(m[1], {
             status: 'proposed', proposed_date: d.date, proposed_time: d.time,
+            ...proposeStaffPatch,
           });
           let pushed = false;
           if (b.line_user_id && await toggleAllows(await loadToggles(), 'proposal')) {
@@ -541,6 +552,20 @@ export async function createApp(config) {
       if (method === 'GET' && p === '/api/bookings') {
         if (!adminOk(req, config)) return json(res, 401, { error: 'unauthorized' });
         return json(res, 200, { bookings: await store.listBookings() });
+      }
+
+      // ---------- 担当スタッフの割り当て/変更（管理者） ----------
+      {
+        const m = /^\/api\/bookings\/([^/]+)\/staff$/.exec(p);
+        if (method === 'POST' && m) {
+          if (!adminOk(req, config)) return json(res, 401, { error: 'unauthorized' });
+          const d = body() || {};
+          const before = await store.getBooking(m[1]);
+          if (!before) return json(res, 404, { error: 'booking not found' });
+          const b = await store.updateBooking(m[1], { staff: normalizeStaff(d.staff) });
+          await store.appendLog(`担当変更 ${b.name} → ${b.staff || '指名なし'}`);
+          return json(res, 200, { ok: true, booking: b });
+        }
       }
 
       // ---------- 顧客・カルテ同期（カルテUI ⇄ サーバー） ----------

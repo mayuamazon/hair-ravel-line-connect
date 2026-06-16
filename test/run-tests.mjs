@@ -17,6 +17,7 @@ import { buildExportModel, customerCsv, historyCsv, dataJson, readmeText } from 
 import { buildMobileViewHtml } from '../lib/mobile-view.mjs';
 import { existsSync, readFileSync } from 'node:fs';
 import { loadConfig, createApp } from '../server.mjs';
+import { STAFF, NO_STAFF, VALID_STAFF_KEYS, staffByKey } from '../lib/staff.mjs';
 
 let pass = 0, fail = 0;
 const failures = [];
@@ -845,6 +846,102 @@ section('エクスポートAPI（サーバー経由）');
   ok((await fetch(`http://127.0.0.1:${gport}/api/export`, { method: 'POST' })).status === 401, 'エクスポートAPI：ADMIN_TOKENなしは401');
   ok((await (await fetch(`http://127.0.0.1:${gport}/api/export`, { method: 'POST', headers: { 'X-Admin-Token': 'tk' } })).json()).ok === true, 'エクスポートAPI：正しいトークンで実行');
   app.close(); gapp.close();
+}
+
+// ================================================================ 9. フェーズ1：担当スタッフ
+section('担当スタッフ（フェーズ1：データ基盤）');
+{
+  // ① スタッフ定義の基本構造
+  ok(Array.isArray(STAFF) && STAFF.length === 2, 'STAFF：2名定義（nakamura/matsuyoshi）');
+  ok(STAFF.every(s => s.key && s.name && s.color), 'STAFF：全員がkey/name/colorを持つ');
+  ok(VALID_STAFF_KEYS.has('') && VALID_STAFF_KEYS.has('nakamura') && VALID_STAFF_KEYS.has('matsuyoshi'), 'VALID_STAFF_KEYS：空/nakamura/matsuyoshiを含む');
+  ok(!VALID_STAFF_KEYS.has('unknown'), 'VALID_STAFF_KEYS：不正キーは含まない');
+
+  // ② staffByKey の動作
+  ok(staffByKey('nakamura').name === '中村', 'staffByKey：nakamura → 中村');
+  ok(staffByKey('matsuyoshi').name === '松吉', 'staffByKey：matsuyoshi → 松吉');
+  ok(staffByKey('').key === '' && staffByKey('').name === '指名なし', 'staffByKey：空キー → 指名なし');
+  ok(staffByKey('bogus').name === '指名なし', 'staffByKey：不正キー → 指名なし にフォールバック');
+  ok(NO_STAFF.key === '' && NO_STAFF.name === '指名なし', 'NO_STAFF：空キーと指名なし表示');
+
+  // ③ 予約作成時に staff を保存できる
+  const storeDir = path.join(TMP, 'staff-data');
+  const staffStore = createMarkdownStore(createFsBackend({ dataDir: storeDir }));
+  const bkWithStaff = await staffStore.createBooking({
+    name: '担当テスト 花子', phone: '090-0000-1111',
+    services: ['カット'], preferred_date: '2026-07-01', preferred_time: '11:00',
+    staff: 'nakamura',
+  });
+  ok(bkWithStaff.staff === 'nakamura', '予約作成：staffフィールドを保存できる');
+
+  const gotStaff = await staffStore.getBooking(bkWithStaff.id);
+  ok(gotStaff && gotStaff.staff === 'nakamura', '予約読み戻し：staffが正しく復元される');
+
+  // ④ staffフィールドのない旧予約は '' として扱う（後方互換）
+  const bkNoStaff = await staffStore.createBooking({
+    name: '旧予約 太郎', services: ['カラー'], preferred_date: '2026-06-01', preferred_time: '10:00',
+  });
+  // staff フィールドを持たない旧形式のMarkdownを直接書いて読み戻す
+  const oldMd = `---\nid: "bk_legacy_001"\nname: "旧 花子"\nstatus: "pending"\nservices: ["カット"]\npreferred_date: "2026-05-01"\npreferred_time: "13:00"\ncreated_at: "2026-05-01T10:00:00+09:00"\n---\n\n# 予約：旧 花子\n`;
+  const legacyPath = `予約/2026-05-01_旧花子_bk_legacy_001.md`;
+  await staffStore.backend.writeFile(legacyPath, oldMd);
+  const allBookings = await staffStore.listBookings();
+  const legacy = allBookings.find(b => b.id === 'bk_legacy_001');
+  ok(legacy && (legacy.staff === '' || legacy.staff === undefined || legacy.staff === null),
+    '旧予約（staffなし）：listBookingsで壊れない（staff は空または未定義）');
+
+  // ⑤ 予約更新で staff を変更できる
+  await staffStore.updateBooking(bkWithStaff.id, { staff: 'matsuyoshi' });
+  const updated = await staffStore.getBooking(bkWithStaff.id);
+  ok(updated && updated.staff === 'matsuyoshi', '予約更新：staffを変更できる');
+
+  // staff を '' に戻す（指名なしへの変更）
+  await staffStore.updateBooking(bkWithStaff.id, { staff: '' });
+  const cleared = await staffStore.getBooking(bkWithStaff.id);
+  ok(cleared && cleared.staff === '', '予約更新：staffを空（指名なし）に変更できる');
+
+  // ⑥ E2E：APIでstaffを保存・取得・更新できる
+  const staffE2eDir = path.join(TMP, 'staff-e2e');
+  const staffCfg = await loadConfig({}, {
+    salonName: 'スタッフテスト', storage: 'fs', dataDir: staffE2eDir,
+    adminToken: '', configDir: path.join(TMP, 'staff-e2e-cfg'), passphrase: 'sp',
+  });
+  const staffApp = http.createServer(await createApp(staffCfg));
+  const staffPort = await listen(staffApp);
+  const sBase = `http://127.0.0.1:${staffPort}`;
+  const sPost = (pp, bd) => fetch(sBase + pp, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(bd) });
+
+  // 予約作成（staff なし）
+  const apiB1 = await (await sPost('/api/booking', { name: 'API テスト 花子', preferred_date: '2026-08-01', preferred_time: '14:00' })).json();
+  ok(apiB1.ok && apiB1.id, 'API予約作成（staff なし）：成功');
+
+  // /api/bookings/:id/confirm に staff を追加して更新できる
+  const confR = await (await sPost(`/api/bookings/${apiB1.id}/confirm`, { staff: 'nakamura' })).json();
+  ok(confR.ok && confR.booking.staff === 'nakamura', 'confirm API：staffを含めて更新できる');
+
+  // GET /api/bookings でstaffが返ってくる
+  const listR = await (await fetch(sBase + '/api/bookings')).json();
+  const apiGot = listR.bookings.find(b => b.id === apiB1.id);
+  ok(apiGot && apiGot.staff === 'nakamura', 'GET /api/bookings：staffが含まれる');
+
+  // propose API でも staff を更新できる
+  const apiB2 = await (await sPost('/api/booking', { name: 'API 提案 太郎', preferred_date: '2026-08-05', preferred_time: '10:00' })).json();
+  const propR = await (await sPost(`/api/bookings/${apiB2.id}/propose`, { date: '2026-08-06', time: '15:00', staff: 'matsuyoshi' })).json();
+  ok(propR.ok && propR.booking.staff === 'matsuyoshi', 'propose API：staffを含めて更新できる');
+
+  // /api/bookings/:id/staff エンドポイント（担当者のみ変更）
+  const apiB3 = await (await sPost('/api/booking', { name: 'API 担当変更 太郎', preferred_date: '2026-08-10', preferred_time: '11:00' })).json();
+  const staffR1 = await (await sPost(`/api/bookings/${apiB3.id}/staff`, { staff: 'nakamura' })).json();
+  ok(staffR1.ok && staffR1.booking.staff === 'nakamura', '担当スタッフAPI：nakamuraに割り当て成功');
+  const staffR2 = await (await sPost(`/api/bookings/${apiB3.id}/staff`, { staff: '' })).json();
+  ok(staffR2.ok && staffR2.booking.staff === '', '担当スタッフAPI：空（指名なし）に変更できる');
+  // 不正なstaffキーは '' に正規化される
+  const staffR3 = await (await sPost(`/api/bookings/${apiB3.id}/staff`, { staff: 'BOGUS_STAFF' })).json();
+  ok(staffR3.ok && staffR3.booking.staff === '', '担当スタッフAPI：不正キーは空に正規化される');
+  // 未存在IDは404
+  ok((await sPost('/api/bookings/bk_nonexistent/staff', { staff: 'nakamura' })).status === 404, '担当スタッフAPI：未存在IDは404');
+
+  staffApp.close();
 }
 
 // ================================================================ 結果

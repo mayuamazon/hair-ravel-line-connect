@@ -193,6 +193,32 @@
   .empty{text-align:center;padding:30px 16px;color:var(--sub);font-size:.86rem;
     background:var(--card);border:1px dashed var(--line);border-radius:18px}
   .foot{text-align:center;padding:40px 22px 0;font-size:.66rem;color:#D2C3B6;letter-spacing:.14em}
+
+  /* 担当者フィルタチップ */
+  .staff-filters{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:14px}
+  .staff-chip{display:inline-flex;align-items:center;gap:5px;padding:5px 13px;border-radius:999px;
+    font-size:.74rem;font-weight:700;border:1.5px solid var(--line);background:var(--card);
+    color:var(--sub);cursor:pointer;transition:all .14s;letter-spacing:.03em;white-space:nowrap}
+  .staff-chip:active{opacity:.8}
+  .staff-chip.active{border-color:currentColor;background:var(--soft)}
+  .staff-chip .dot{width:8px;height:8px;border-radius:50%;flex:none}
+
+  /* 担当者バッジ（予約カード内） */
+  .staff-badge{display:inline-flex;align-items:center;gap:4px;border-radius:999px;
+    padding:2px 9px;font-size:.64rem;font-weight:800;letter-spacing:.03em}
+  .staff-badge .dot{width:6px;height:6px;border-radius:50%;flex:none}
+
+  /* 担当者セレクト（予約詳細内の割り当て） */
+  .staff-select-row{display:flex;align-items:center;gap:8px;margin-top:10px;padding-top:10px;border-top:1px dashed var(--line)}
+  .staff-select-row label{font-size:.78rem;color:var(--sub);white-space:nowrap}
+  .staff-select{flex:1;border:1.5px solid var(--line);border-radius:11px;background:var(--bg);
+    font-family:var(--sans);font-size:.84rem;color:var(--ink);padding:8px 10px;outline:none;
+    -webkit-appearance:none;cursor:pointer}
+  .staff-select:focus{border-color:var(--accent)}
+  .staff-save-btn{flex:none;min-height:36px;padding:0 14px;border:none;border-radius:11px;
+    background:var(--accent);color:#fff;font-size:.78rem;font-weight:700;cursor:pointer;font-family:var(--sans)}
+  .staff-save-btn:active{opacity:.85}
+  .staff-save-btn:disabled{opacity:.45;pointer-events:none}
 </style>
 </head>
 <body>
@@ -298,7 +324,12 @@
         <span style="width:44px"></span>
       </header>
 
-      <div class="sec" style="margin-top:18px">
+      <!-- 担当者フィルタ -->
+      <div class="sec" style="margin-top:14px;margin-bottom:0">
+        <div class="staff-filters" id="staffFilters"></div>
+      </div>
+
+      <div class="sec" style="margin-top:8px">
         <div class="cal-nav">
           <h3 id="calTitle">—</h3>
           <div class="nav-btns">
@@ -630,9 +661,10 @@ async function sendVacancy(){
 function openCalendar(){
   const now = new Date();
   calY = now.getFullYear(); calM = now.getMonth(); selDate = todayStr();
+  staffFilter = 'all';
   $('#view-home').classList.remove('active');
   $('#view-cal').classList.add('active');
-  renderCal(); renderDayList();
+  renderStaffFilters(); renderCal(); renderDayList();
   window.scrollTo(0,0);
 }
 function closeCalendar(){
@@ -648,7 +680,7 @@ function moveMonth(dir){
 }
 function countsByDate(){
   const map = {};
-  for(const b of bookings){ const d = dispDate(b); if(d) map[d] = (map[d]||0)+1; }
+  for(const b of filteredBookings()){ const d = dispDate(b); if(d) map[d] = (map[d]||0)+1; }
   return map;
 }
 function renderCal(){
@@ -676,7 +708,7 @@ function renderDayList(){
   const [y,m,d] = selDate.split('-').map(Number);
   const dow = WD[new Date(y, m-1, d).getDay()];
   $('#dayTitle').textContent = `${m}月${d}日（${dow}）`;
-  const list = bookings.filter(b => dispDate(b) === selDate)
+  const list = filteredBookings().filter(b => dispDate(b) === selDate)
     .sort((a,b) => dispTime(a).localeCompare(dispTime(b)));
   $('#dayCount').textContent = list.length ? `${list.length}件` : '';
   $('#dayList').innerHTML = list.length ? list.map(bkCardHTML).join('')
@@ -692,13 +724,15 @@ function bkCardHTML(b){
     ? `<span class="line-badge">LINE ${esc(b.line_display_name || '')}</span>` : '';
   // 確定ボタンは「承認待ち（pending）」のみ。提案中は承諾待ちのため出さない。
   const showConfirm = b.status !== 'confirmed' && b.status !== 'proposed';
+  const staffBadge = staffBadgeHTML(b);
   return `<div class="bk-card">
     <div class="bk-time">${esc(dispTime(b))}</div>
     <div class="bk-body">
-      <div class="bk-name">${esc(b.name)} ${st} ${lineBadge}</div>
+      <div class="bk-name">${esc(b.name)} ${st} ${staffBadge} ${lineBadge}</div>
       <div class="bk-sub">${(b.services||[]).map(esc).join(' / ') || 'メニュー未指定'}${b.phone ? `　📞 ${esc(b.phone)}` : ''}</div>
       ${b.notes ? `<div class="bk-sub">📝 ${esc(b.notes)}</div>` : ''}
       ${showConfirm ? `<button class="confirm-btn" onclick="confirmBooking('${esc(b.id)}', this)">✓ この予約を確定する（お客様にLINE通知）</button>` : ''}
+      ${staffSelectHTML(b)}
     </div>
   </div>`;
 }
@@ -717,6 +751,95 @@ async function confirmBooking(id, btn){
       toast('確定できませんでした'); btn.disabled = false; btn.textContent = '✓ この予約を確定する（お客様にLINE通知）';
     }
   }catch(e){ toast('サーバーに接続できませんでした'); btn.disabled = false; }
+}
+
+// ========== 担当スタッフ（フェーズ1） ==========
+
+// スタッフ定義（lib/staff.mjs と同期して変えること）
+const STAFF = [
+  { key: 'nakamura',   name: '中村', color: '#7B9E8A' },
+  { key: 'matsuyoshi', name: '松吉', color: '#8A7BA0' },
+];
+const NO_STAFF = { key: '', name: '指名なし', color: '#B8A090' };
+function staffByKey(key) {
+  if (!key) return NO_STAFF;
+  return STAFF.find(s => s.key === key) || NO_STAFF;
+}
+
+// 現在のフィルター（'' = 全員）
+let staffFilter = 'all';
+
+// フィルタチップを描画
+function renderStaffFilters() {
+  const el = $('#staffFilters'); if (!el) return;
+  const all = [{ key: 'all', name: '全員', color: 'var(--sub)' }, ...STAFF, NO_STAFF];
+  el.innerHTML = all.map(s => {
+    const dotStyle = s.key === 'all' ? '' : `background:${s.color}`;
+    const dot = s.key === 'all' ? '' : `<span class="dot" style="${dotStyle}"></span>`;
+    const active = staffFilter === s.key ? 'active' : '';
+    const colorStyle = s.key === 'all' ? '' : `color:${s.color}`;
+    return `<button class="staff-chip ${active}" style="${colorStyle}" onclick="setStaffFilter('${s.key}')">${dot}${s.name}</button>`;
+  }).join('');
+}
+function setStaffFilter(key) {
+  staffFilter = key;
+  renderStaffFilters();
+  renderCal();
+  renderDayList();
+}
+
+// フィルタを適用した予約一覧を返す
+function filteredBookings() {
+  if (staffFilter === 'all') return bookings;
+  return bookings.filter(b => (b.staff || '') === staffFilter);
+}
+
+// 担当バッジHTMLを生成する
+function staffBadgeHTML(b) {
+  const s = staffByKey(b.staff || '');
+  if (!s.key) return ''; // 指名なしはバッジなし（ノイズを減らす）
+  return `<span class="staff-badge" style="background:${s.color}20;color:${s.color}"><span class="dot" style="background:${s.color}"></span>${s.name}</span>`;
+}
+
+// 担当者割り当てフォームのHTML（予約詳細カード内）
+function staffSelectHTML(b) {
+  const opts = [NO_STAFF, ...STAFF].map(s =>
+    `<option value="${s.key}" ${(b.staff || '') === s.key ? 'selected' : ''}>${s.name}</option>`
+  ).join('');
+  return `<div class="staff-select-row">
+    <label>担当</label>
+    <select class="staff-select" id="ss-${esc(b.id)}">${opts}</select>
+    <button class="staff-save-btn" id="ssb-${esc(b.id)}" onclick="saveStaff('${esc(b.id)}', this)">保存</button>
+  </div>`;
+}
+
+// 担当者を保存する（confirm API に staff を追加）
+async function saveStaff(id, btn) {
+  const sel = $(`#ss-${id}`); if (!sel) return;
+  const staff = sel.value;
+  btn.disabled = true; btn.textContent = '…';
+  try {
+    const b = bookings.find(x => x.id === id);
+    if (!b) { toast('予約が見つかりません'); btn.disabled = false; btn.textContent = '保存'; return; }
+    // 既存のconfirm/proposeどちらでも updateBooking と同じエンドポイントを使う。
+    // 担当者のみ変更したい場合は confirm で現状維持（date/timeはbeforeから引継ぎ）
+    const res = await fetch(`/api/bookings/${encodeURIComponent(id)}/staff`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...adminHeaders() },
+      body: JSON.stringify({ staff }),
+    });
+    const j = await res.json();
+    if (res.ok && j.ok) {
+      // ローカルのbookingsを更新
+      const idx = bookings.findIndex(x => x.id === id);
+      if (idx >= 0) bookings[idx] = { ...bookings[idx], staff };
+      toast(`担当を「${staffByKey(staff).name}」に変更しました`);
+      renderCal(); renderDayList();
+    } else {
+      toast('保存できませんでした');
+    }
+  } catch (e) { toast('サーバーに接続できませんでした'); }
+  btn.disabled = false; btn.textContent = '保存';
 }
 
 // ---------- 起動 ----------
