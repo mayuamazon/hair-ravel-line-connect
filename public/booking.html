@@ -47,12 +47,17 @@
   .menu-item .mi-meta{font-size:.74rem;color:var(--sub);margin-top:2px}
   .menu-item .mi-price{flex:none;font-family:var(--serif);font-size:.98rem;font-weight:600;color:var(--accent)}
 
-  /* チップ（時間・確認用） */
+  /* チップ（時間・確認用・スタッフ選択） */
   .chips{display:flex;flex-wrap:wrap;gap:9px}
   .chip{min-height:44px;padding:9px 16px;border-radius:999px;cursor:pointer;
     border:1px solid var(--line);background:var(--card);font-size:.9rem;
     display:inline-flex;align-items:center;font-family:var(--sans);color:var(--ink);transition:all .15s}
   .chip.on{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+
+  /* スタッフ選択 */
+  .staff-sec{margin-bottom:20px;padding-bottom:20px;border-bottom:1px solid var(--line)}
+  .staff-sec h2{font-size:.95rem;font-weight:600;letter-spacing:.05em;margin:4px 0 10px}
+  .staff-chips{display:flex;flex-wrap:wrap;gap:9px}
 
   /* 入力 */
   label{display:block;font-size:.8rem;font-weight:600;letter-spacing:.04em;margin:16px 0 6px}
@@ -121,6 +126,11 @@
 
     <!-- STEP 1 メニュー -->
     <section class="view" id="step1">
+      <!-- スタッフ選択（STEP1冒頭に統合） -->
+      <div class="staff-sec">
+        <h2>ご指名<small style="font-weight:400;color:var(--sub);font-size:.72rem;margin-left:6px">（任意）</small></h2>
+        <div class="staff-chips" id="staffChips"></div>
+      </div>
       <p class="lead">ご希望のメニューをお選びください（複数可・タップで選択）。</p>
       <div id="menuList"></div>
     </section>
@@ -185,6 +195,13 @@
 <script>
 const CFG = /*__CFG__*/null;
 
+// スタッフ定義（lib/staff.mjs の key/name と一致させること）
+const STAFF_OPTIONS = [
+  { key: 'nakamura',   name: '中村' },
+  { key: 'matsuyoshi', name: '松吉' },
+  { key: '',           name: 'おまかせ' },
+];
+
 // メニューマスター（カテゴリ・名前・分・円）
 const MENU_MASTER = [
   { cat:'カット', name:'カット（ナノバブル頭皮洗浄付き）', min:60, yen:4950 },
@@ -216,6 +233,7 @@ const LIFF_ID = (CFG && CFG.liffId) || '';
 const state = {
   step: 1,
   selected: new Set(),   // 選択中メニューのindex
+  staff: '',             // 担当スタッフキー（''=おまかせ）
   date: '',
   time: '',
   line_user_id: '',
@@ -234,6 +252,7 @@ function init(){
   $('#fDate').min = todayStr;
 
   renderMenu();
+  renderStaffChips();
   renderTimes();
   updateDock();
   if(LIFF_ID) initLiff();
@@ -266,6 +285,18 @@ function toggleMenu(i){
   const el = document.querySelector(`.menu-item[data-i="${i}"]`);
   if(el) el.classList.toggle('on', state.selected.has(i));
   updateDock();
+}
+
+// ---------- STEP 1 スタッフ選択 ----------
+function renderStaffChips(){
+  $('#staffChips').innerHTML = STAFF_OPTIONS.map(s =>
+    `<button type="button" class="chip${s.key === state.staff ? ' on' : ''}" data-staff="${s.key}" onclick="pickStaff('${s.key}')">${esc(s.name)}</button>`
+  ).join('');
+}
+function pickStaff(key){
+  state.staff = key;
+  document.querySelectorAll('#staffChips .chip').forEach(c =>
+    c.classList.toggle('on', c.dataset.staff === key));
 }
 
 // ---------- STEP 2 時間 ----------
@@ -342,11 +373,16 @@ function go(dir){
 }
 
 // ---------- STEP 4 確認 ----------
+function staffDisplayName(){
+  const s = STAFF_OPTIONS.find(o => o.key === state.staff);
+  return s ? s.name : 'おまかせ';
+}
 function renderReview(){
   const { yenSum, minSum } = totals();
   const names = selectedNames();
   const notes = $('#fNotes').value.trim();
   $('#reviewCard').innerHTML = `
+    <div class="rev-row"><span class="k">ご指名</span><span class="v">${esc(staffDisplayName())}</span></div>
     <div class="rev-row"><span class="k">メニュー</span><span class="v">${names.map(esc).join('<br>')}</span></div>
     <div class="rev-row"><span class="k">ご希望日時</span><span class="v">${esc(state.date)}　${esc(state.time)}</span></div>
     <div class="rev-row"><span class="k">お名前</span><span class="v">${esc($('#fName').value.trim())}</span></div>
@@ -368,6 +404,7 @@ async function submit(){
     preferred_time: state.time,
     notes: $('#fNotes').value.trim(),
     price: yen(yenSum),
+    staff: state.staff,
     line_user_id: state.line_user_id,
     line_display_name: state.line_display_name,
   };

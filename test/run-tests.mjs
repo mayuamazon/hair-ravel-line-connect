@@ -944,6 +944,81 @@ section('担当スタッフ（フェーズ1：データ基盤）');
   staffApp.close();
 }
 
+// ================================================================ 10. フェーズ2：予約フォームからのスタッフ選択
+section('フェーズ2：予約フォームからのスタッフ選択（POST /api/booking への staff 反映）');
+{
+  const f2Dir = path.join(TMP, 'phase2-data');
+  const f2Cfg = await loadConfig({}, {
+    salonName: 'フェーズ2テスト', storage: 'fs', dataDir: f2Dir,
+    adminToken: '', configDir: path.join(TMP, 'phase2-cfg'), passphrase: 'ph2',
+  });
+  const f2App = http.createServer(await createApp(f2Cfg));
+  const f2Port = await listen(f2App);
+  const f2Base = `http://127.0.0.1:${f2Port}`;
+  const f2Post = (pp, bd) => fetch(f2Base + pp, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(bd),
+  });
+
+  // ① staff: 'nakamura' を渡すと予約に保存される
+  const r1 = await f2Post('/api/booking', {
+    name: '中村指名 花子', preferred_date: '2026-09-01', preferred_time: '11:00',
+    services: ['カット'], staff: 'nakamura',
+  });
+  const j1 = await r1.json();
+  ok(r1.status === 200 && j1.ok, 'フォームstaff：nakamura を渡して登録成功');
+  const got1 = (await (await fetch(f2Base + '/api/bookings')).json()).bookings.find(b => b.id === j1.id);
+  ok(got1 && got1.staff === 'nakamura', 'フォームstaff：nakamura が予約データに保存される');
+
+  // ② staff: 'matsuyoshi' を渡すと予約に保存される
+  const r2 = await f2Post('/api/booking', {
+    name: '松吉指名 太郎', preferred_date: '2026-09-02', preferred_time: '13:00',
+    services: ['カラー'], staff: 'matsuyoshi',
+  });
+  const j2 = await r2.json();
+  ok(r2.status === 200 && j2.ok, 'フォームstaff：matsuyoshi を渡して登録成功');
+  const got2 = (await (await fetch(f2Base + '/api/bookings')).json()).bookings.find(b => b.id === j2.id);
+  ok(got2 && got2.staff === 'matsuyoshi', 'フォームstaff：matsuyoshi が予約データに保存される');
+
+  // ③ staff を省略（おまかせ相当）すると '' が保存される
+  const r3 = await f2Post('/api/booking', {
+    name: 'おまかせ 次郎', preferred_date: '2026-09-03', preferred_time: '15:00',
+    services: ['トリートメント'],
+  });
+  const j3 = await r3.json();
+  ok(r3.status === 200 && j3.ok, 'フォームstaff省略：登録成功');
+  const got3 = (await (await fetch(f2Base + '/api/bookings')).json()).bookings.find(b => b.id === j3.id);
+  ok(got3 && (got3.staff === '' || got3.staff === undefined || got3.staff === null),
+    'フォームstaff省略：staff が空（指名なし）として保存される');
+
+  // ④ staff: '' を明示（おまかせを明示選択）→ '' が保存される
+  const r4 = await f2Post('/api/booking', {
+    name: 'おまかせ明示 三郎', preferred_date: '2026-09-04', preferred_time: '10:00',
+    services: ['カット'], staff: '',
+  });
+  const j4 = await r4.json();
+  ok(r4.status === 200 && j4.ok, 'フォームstaff空文字：登録成功');
+  const got4 = (await (await fetch(f2Base + '/api/bookings')).json()).bookings.find(b => b.id === j4.id);
+  ok(got4 && got4.staff === '', 'フォームstaff空文字：空文字が保存される（指名なし）');
+
+  // ⑤ 不正な staff キーは '' に正規化される
+  const r5 = await f2Post('/api/booking', {
+    name: '不正スタッフ 四郎', preferred_date: '2026-09-05', preferred_time: '11:00',
+    services: ['カット'], staff: 'BOGUS_STAFF_KEY',
+  });
+  const j5 = await r5.json();
+  ok(r5.status === 200 && j5.ok, 'フォームstaff不正キー：登録は成功する（サーバーが正規化）');
+  const got5 = (await (await fetch(f2Base + '/api/bookings')).json()).bookings.find(b => b.id === j5.id);
+  ok(got5 && got5.staff === '', 'フォームstaff不正キー：空文字に正規化して保存される');
+
+  // ⑥ 予約フォームHTML（/booking）に staff 選択UI が含まれる
+  const bkHtml = await (await fetch(f2Base + '/booking')).text();
+  ok(bkHtml.includes('nakamura') && bkHtml.includes('matsuyoshi'), '予約フォームHTML：nakamura/matsuyoshiのキーが含まれる');
+  ok(bkHtml.includes('中村') && bkHtml.includes('松吉') && bkHtml.includes('おまかせ'), '予約フォームHTML：中村/松吉/おまかせの表示名が含まれる');
+  ok(bkHtml.includes('state.staff'), '予約フォームHTML：state.staff を使ったJS処理が含まれる');
+
+  f2App.close();
+}
+
 // ================================================================ 結果
 console.log('\n' + '═'.repeat(46));
 console.log(`結果: ${pass} 成功 / ${fail} 失敗`);
